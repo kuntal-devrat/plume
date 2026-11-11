@@ -236,12 +236,13 @@ type Style struct {
 	FlexBasis  Dimension
 
 	// Sizing
-	Width     Dimension
-	Height    Dimension
-	MinWidth  Dimension
-	MinHeight Dimension
-	MaxWidth  Dimension
-	MaxHeight Dimension
+	Width       Dimension
+	Height      Dimension
+	MinWidth    Dimension
+	MinHeight   Dimension
+	MaxWidth    Dimension
+	MaxHeight   Dimension
+	AspectRatio float32 // Aspect ratio (width / height). If > 0, calculates auto dimension.
 
 	// Box model
 	Margin  Edges

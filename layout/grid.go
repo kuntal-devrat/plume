@@ -16,6 +16,15 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	}
 
 	// 2. Collect Grid Items
+	numCols := len(node.Style.GridTemplateColumns)
+	if numCols == 0 {
+		numCols = 1
+	}
+	numRows := len(node.Style.GridTemplateRows)
+	if numRows == 0 {
+		numRows = 1
+	}
+
 	t.gridItems = t.gridItems[:0]
 	child := node.FirstChild
 	for child != InvalidNode {
@@ -24,33 +33,51 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			cs := &c.Style
 
 			// Columns
+			colStart := -1
+			if cs.GridColumnStart > 0 {
+				colStart = int(cs.GridColumnStart) - 1
+			} else if cs.GridColumnStart < 0 {
+				colStart = numCols + 1 + int(cs.GridColumnStart)
+			}
+
+			colEnd := -1
+			if cs.GridColumnEnd > 0 {
+				colEnd = int(cs.GridColumnEnd) - 1
+			} else if cs.GridColumnEnd < 0 {
+				colEnd = numCols + 1 + int(cs.GridColumnEnd)
+			}
+
 			colSpan := int(cs.GridColumnSpan)
 			if colSpan <= 0 {
-				if cs.GridColumnEnd > cs.GridColumnStart && cs.GridColumnStart > 0 {
-					colSpan = int(cs.GridColumnEnd - cs.GridColumnStart)
+				if colEnd > colStart && colStart >= 0 {
+					colSpan = colEnd - colStart
 				} else {
 					colSpan = 1
 				}
 			}
 
-			colStart := -1
-			if cs.GridColumnStart > 0 {
-				colStart = int(cs.GridColumnStart) - 1
-			}
-
 			// Rows
-			rowSpan := int(cs.GridRowSpan)
-			if rowSpan <= 0 {
-				if cs.GridRowEnd > cs.GridRowStart && cs.GridRowStart > 0 {
-					rowSpan = int(cs.GridRowEnd - cs.GridRowStart)
-				} else {
-					rowSpan = 1
-				}
-			}
-
 			rowStart := -1
 			if cs.GridRowStart > 0 {
 				rowStart = int(cs.GridRowStart) - 1
+			} else if cs.GridRowStart < 0 {
+				rowStart = numRows + 1 + int(cs.GridRowStart)
+			}
+
+			rowEnd := -1
+			if cs.GridRowEnd > 0 {
+				rowEnd = int(cs.GridRowEnd) - 1
+			} else if cs.GridRowEnd < 0 {
+				rowEnd = numRows + 1 + int(cs.GridRowEnd)
+			}
+
+			rowSpan := int(cs.GridRowSpan)
+			if rowSpan <= 0 {
+				if rowEnd > rowStart && rowStart >= 0 {
+					rowSpan = rowEnd - rowStart
+				} else {
+					rowSpan = 1
+				}
 			}
 
 			definite := colStart >= 0 && rowStart >= 0
@@ -370,6 +397,8 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			t.computeNode(it.node, itemW, itemH)
 			c.Computed.X = itemX
 			c.Computed.Y = itemY
+			c.Computed.Width = itemW
+			c.Computed.Height = itemH
 		}
 	}
 
