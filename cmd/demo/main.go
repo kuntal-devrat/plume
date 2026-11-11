@@ -16,7 +16,7 @@ func main() {
 		canvasH = 600
 	)
 
-	fmt.Println("🚀 Plume Engine Demo (Phase 1: Pure Go Zero-Cgo Layout & Vector Rasterizer)")
+	fmt.Println("Plume demo: flexbox layout and rasterization")
 
 	// 1. Create layout tree
 	tree := layout.NewTree()

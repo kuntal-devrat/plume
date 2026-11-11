@@ -1,106 +1,106 @@
-# Plume (Surfa) 🪶
+# Plume
 
-**A zero-Cgo, mechanical-sympathy 2D Layout & Vector Rasterization Engine for Go.**
+Plume is a 2D layout and vector rasterization library written in pure Go. It provides CSS Flexbox and Grid layout, analytical anti-aliased CPU rasterization, vector path geometry, TrueType font parsing, and adapters for game engines and native desktop apps without Cgo dependencies.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/plume-engine/plume.svg)](https://pkg.go.dev/github.com/plume-engine/plume)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Zero Cgo](https://img.shields.io/badge/CGO_ENABLED-0-success.svg)](README.md)
+## Features
 
----
+- **Pure Go**: Builds with standard `go build` (`CGO_ENABLED=0`) across Linux, macOS, Windows, and WebAssembly.
+- **Layout Engine (`plume/layout`)**:
+  - CSS Flexbox (direction, wrap, grow, shrink, basis, alignment, gap, padding, margin, min/max bounds).
+  - CSS Grid (flexible `fr` tracks, fixed pixel and percentage tracks, line placement, spans, and auto-placement).
+  - Arena-backed tree with integer indices (`NodeID uint32`). Layout passes reuse pre-allocated scratch slices without heap allocations.
+- **Vector Geometry (`plume/geom`)**:
+  - Path builder for lines, quadratic Béziers, cubic Béziers, and arcs.
+  - De Casteljau curve flattening, bounding box calculation, path stroking with caps and joins, dash patterns, and 2D affine transforms.
+- **Software Rasterizer (`plume/raster`)**:
+  - Analytical signed-area anti-aliasing inspired by FreeType and tiny-skia.
+  - Active scanline tracking to avoid clearing or sweeping untouched canvas rows.
+  - AVX2 Go assembly routines on x86-64 for alpha blending with portable pure-Go fallbacks.
+- **Font Engine (`plume/text`)**:
+  - Pure-Go SFNT/TrueType binary parser (`cmap`, `glyf`, `loca`, `head`, `hmtx`, `hhea`, `kern`).
+  - Converts vector glyphs into `geom.Path` structures.
+  - Multi-line text shaper with word wrapping, kerning, and an LRU glyph alpha mask cache.
+- **Ecosystem Adapters**:
+  - `adapter/ebiten`: Zero-copy surface bridge and pointer hit testing for Ebitengine games.
+  - `adapter/wails`: Canvas serialization to base64 data URLs and raw buffers for desktop webviews.
+  - `gpu`: Ear-clipping path tessellator for generating GPU index/vertex buffers.
+  - `playground`: In-browser WebAssembly interactive layout preview.
 
-## ⚡ Highlights
+## Architecture
 
-- **Strictly Zero Cgo (`CGO_ENABLED=0`)**: Clean cross-compilation to `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`, and `js/wasm`.
-- **Zero Allocations in Hot Loop**: Layout passes compute with **0 bytes/op** and **0 allocs/op** over a flat array arena.
-- **Microsecond Layout Speeds**: Computes 1,000-node Flexbox layouts in **~4.0 µs** (50× faster than the 200 µs target SLA).
-- **Analytical Area-Based Anti-Aliasing (Analytic AA)**: Subpixel-precise signed area scanline rasterizer (inspired by FreeType & tiny-skia).
-- **Decoupled Architecture**: `plume/layout` has zero dependencies on `plume/raster` or `plume/geom`.
+```
+plume/
+├── layout/        # CSS Flexbox and Grid layout (zero dependencies)
+├── geom/          # 2D path geometry, flattening, stroking, transforms
+├── raster/        # Analytical scanline rasterizer and Canvas drawing API
+├── text/          # TrueType parser, glyph outline decoder, and text shaper
+├── gpu/           # Vector polygon ear-clipping tessellator
+├── adapter/
+│   ├── ebiten/    # Ebitengine surface bridge and UI hit-testing
+│   └── wails/     # Wails desktop canvas bridge
+├── cmd/
+│   ├── demo/      # Flexbox rendering verification demo
+│   ├── dashboard/ # Complex CSS Grid dashboard benchmark
+│   ├── oggen/     # Headless social card generator CLI
+│   └── wasm/      # WebAssembly browser binary
+└── playground/    # Static HTML + WebAssembly interactive editor
+```
 
----
-
-## 📦 Packages
-
-| Package | Purpose | Dependencies |
-|:---|:---|:---|
-| [`plume`](file:///home/pika/Documents/Surfa/plume.go) | Root types: `Color`, `Paint`, `Hex()`, `SavePNG()` | Standard Library only |
-| [`plume/layout`](file:///home/pika/Documents/Surfa/layout/) | W3C CSS Flexbox layout engine over flat arena | Standard Library only |
-| [`plume/geom`](file:///home/pika/Documents/Surfa/geom/) | Vector paths, Bézier flattening, stroking, dashes, affine transforms | Standard Library only |
-| [`plume/raster`](file:///home/pika/Documents/Surfa/raster/) | Analytical anti-aliased CPU scanline rasterizer & Canvas API | `geom`, `layout`, stdlib |
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ```go
 package main
 
 import (
-    "github.com/plume-engine/plume"
-    "github.com/plume-engine/plume/layout"
-    "github.com/plume-engine/plume/raster"
+	"github.com/plume-engine/plume"
+	"github.com/plume-engine/plume/layout"
+	"github.com/plume-engine/plume/raster"
 )
 
 func main() {
-    // 1. Create a layout tree
-    tree := layout.NewTree()
+	// 1. Build a layout tree
+	tree := layout.NewTree()
 
-    root := tree.NewNode(layout.Style{
-        Display:        layout.DisplayFlex,
-        FlexDirection:  layout.FlexDirectionColumn,
-        JustifyContent: layout.JustifySpaceBetween,
-        Width:          layout.Px(800),
-        Height:         layout.Px(600),
-        Padding:        layout.Uniform(24),
-    })
+	root := tree.NewNode(layout.Style{
+		Display:        layout.DisplayFlex,
+		FlexDirection:  layout.FlexDirectionColumn,
+		JustifyContent: layout.JustifySpaceBetween,
+		Width:          layout.Px(800),
+		Height:         layout.Px(600),
+		Padding:        layout.Uniform(24),
+	})
 
-    card := tree.NewNode(layout.Style{
-        Display:        layout.DisplayFlex,
-        FlexDirection:  layout.FlexDirectionRow,
-        AlignItems:     layout.AlignCenter,
-        Gap:            layout.Px(16),
-        Height:         layout.Px(80),
-    })
-    tree.AddChild(root, card)
+	card := tree.NewNode(layout.Style{
+		Display:       layout.DisplayFlex,
+		FlexDirection: layout.FlexDirectionRow,
+		AlignItems:    layout.AlignCenter,
+		Gap:           layout.Px(16),
+		Height:        layout.Px(80),
+	})
+	tree.AddChild(root, card)
 
-    // 2. Compute Layout (zero-allocations in hot loop)
-    tree.Compute(800, 600)
+	// 2. Compute Layout (zero allocations in hot loop)
+	tree.Compute(800, 600)
 
-    // 3. Render directly onto a 2D Canvas
-    canvas := raster.NewCanvas(800, 600)
-    canvas.Clear(plume.Hex("#0f172a"))
+	// 3. Render onto Canvas
+	canvas := raster.NewCanvas(800, 600)
+	canvas.Clear(plume.Hex("#0f172a"))
 
-    // Draw the computed card with rounded corners
-    bounds := tree.ComputedRect(card)
-    canvas.DrawRoundedRect(bounds, 12, plume.Fill(plume.Hex("#1e293b")))
+	bounds := tree.ComputedRect(card)
+	canvas.DrawRoundedRect(bounds, 12, plume.Fill(plume.Hex("#1e293b")))
 
-    // Draw text placeholder
-    canvas.DrawText("Hello from Pure Go!", bounds.X+16, bounds.Y+24, plume.TextStyle{
-        FontSize: 18,
-        Color:    plume.White,
-    })
-
-    // 4. Save to standard Go image
-    img := canvas.ToRGBA()
-    plume.SavePNG(img, "output.png")
+	// 4. Save PNG
+	plume.SavePNG(canvas.ToRGBA(), "output.png")
 }
 ```
 
----
+## Current Limitations & Roadmap
 
-## 📊 Benchmarks
+- **Text Shaping**: The text package parses TrueType outlines and handles Latin/Cyrillic horizontal kerning and word wrapping. It does not implement full OpenType layout tables (`GSUB`/`GPOS`) required for complex scripts (such as Arabic or Devanagari) or colored emoji glyphs (`COLR`/`CBDT`).
+- **Color Spaces**: Compositing operates in premultiplied sRGB. Linear color space blending and ICC profile color management are not yet implemented.
+- **Clipping**: Arbitrary path clipping is currently handled at the geometry / bounding box level rather than through stencil clip buffers.
+- **Multi-Threading**: Rasterization runs synchronously on a single goroutine per canvas. Tile-based multi-threaded parallel sweeping is planned for future releases.
 
-Hardware: `11th Gen Intel(R) Core(TM) i5-1155G7 @ 2.50GHz`
-
-```
-BenchmarkFlexbox1000Nodes-8     322,719   4,096 ns/op   0 B/op   0 allocs/op
-BenchmarkFlexboxDeep-8          689,304   1,803 ns/op   0 B/op   0 allocs/op
-BenchmarkFlattenCircle-8        242,240   6,403 ns/op
-BenchmarkBoundingBox-8       11,487,394     115 ns/op   0 B/op   0 allocs/op
-BenchmarkCanvasClear-8              331   3.4 ms/op (1080p 60fps capable)
-```
-
----
-
-## 📄 License
+## License
 
 Dual-licensed under MIT or Apache 2.0.

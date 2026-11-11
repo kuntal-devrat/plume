@@ -62,11 +62,11 @@ func main() {
 		// 3. Main title (wrapped)
 		titleH := text.DrawTextWrapped(canvas, cache, font, *title, 72, 170, cardW-180, 40, plume.White)
 
-		// 4. Subtitle
-		subtitle := "Zero-Cgo, mechanical-sympathy CSS Flexbox, Grid, & SIMD vector rasterization engine."
+		// Subtitle
+		subtitle := "Pure Go 2D vector rasterization and CSS flexbox/grid layout."
 		text.DrawTextWrapped(canvas, cache, font, subtitle, 72, 190+titleH, cardW-220, 20, plume.Hex("#9ca3af"))
 
-		// 5. Footer: Author & Brand
+		// Footer: Author & Brand
 		footerY := float32(cardH - 84)
 		logoCircle := geom.Circle(88, footerY-4, 14)
 		canvas.DrawPath(logoCircle, plume.Fill(plume.Hex("#38bdf8")))
@@ -74,9 +74,9 @@ func main() {
 		text.DrawText(canvas, cache, font, "• "+*author, 185, footerY+2, 16, plume.Hex("#6b7280"))
 
 		// Stat badge in footer
-		statBadge := raster.Rect{X: cardW - 240, Y: footerY - 18, Width: 168, Height: 32}
+		statBadge := raster.Rect{X: cardW - 200, Y: footerY - 18, Width: 128, Height: 32}
 		canvas.DrawRoundedRect(statBadge, 6, plume.Fill(plume.Hex("#14532d")))
-		text.DrawText(canvas, cache, font, "⚡ 0 ALLOCS / FRAME", statBadge.X+12, statBadge.Y+22, 12, plume.Hex("#4ade80"))
+		text.DrawText(canvas, cache, font, "PURE GO", statBadge.X+24, statBadge.Y+22, 12, plume.Hex("#4ade80"))
 
 		return canvas
 	}
@@ -86,11 +86,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to save card: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf(" Saved Open Graph card to %s (1200x630 px)\n", *outPath)
+	fmt.Printf("Saved Open Graph card to %s (%dx%d px)\n", *outPath, cardW, cardH)
 
 	if *bench {
 		const n = 200
-		fmt.Printf("⏱️  Running high-throughput generation benchmark (%d cards)...\n", n)
+		fmt.Printf("Benchmarking card generation (%d cards)...\n", n)
 		start := time.Now()
 		for i := 0; i < n; i++ {
 			_ = generateCard()
@@ -99,10 +99,10 @@ func main() {
 		cardsPerSec := float64(n) / elapsed.Seconds()
 		msPerCard := elapsed.Seconds() * 1000 / float64(n)
 
-		fmt.Printf(" Results:\n")
-		fmt.Printf("   • Total time:    %v\n", elapsed)
-		fmt.Printf("   • Time/Card:     %.2f ms\n", msPerCard)
-		fmt.Printf("   • Throughput:    %.0f cards/second\n", cardsPerSec)
+		fmt.Printf("Performance:\n")
+		fmt.Printf("  Total time: %v\n", elapsed)
+		fmt.Printf("  Latency:    %.2f ms/card\n", msPerCard)
+		fmt.Printf("  Throughput: %.0f cards/second\n", cardsPerSec)
 	}
 
 	_ = layout.NewTree // ensure layout import is preserved

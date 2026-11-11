@@ -1,9 +1,5 @@
-// Package text provides a pure-Go TrueType / OpenType font parser,
-// glyph outline decoder, horizontal text shaper, and LRU glyph cache
-// for the Plume rendering engine.
-//
-// It operates with strictly zero Cgo and zero external dependencies,
-// emitting vector paths directly as [geom.Path] structures.
+// Package text provides TrueType/OpenType font parsing, glyph outline decoding,
+// horizontal text shaping, and glyph caching.
 package text
 
 import (

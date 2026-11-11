@@ -123,8 +123,63 @@ func (c *Canvas) DrawPath(p geom.Path, paint plume.Paint) {
 
 // DrawRect draws a filled axis-aligned rectangle.
 func (c *Canvas) DrawRect(r Rect, paint plume.Paint) {
-	p := geom.Rect(r.X, r.Y, r.Width, r.Height)
-	c.DrawPath(p, paint)
+	// Fast path for axis-aligned rectangles: bypass polygon rasterizer
+	x0 := int(r.X + 0.5)
+	y0 := int(r.Y + 0.5)
+	x1 := int(r.X + r.Width + 0.5)
+	y1 := int(r.Y + r.Height + 0.5)
+
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > c.width {
+		x1 = c.width
+	}
+	if y1 > c.height {
+		y1 = c.height
+	}
+
+	if x0 >= x1 || y0 >= y1 {
+		return
+	}
+
+	col := paint.Color
+	w := c.width * 4
+
+	if col.A == 255 {
+		row0 := c.pixels[y0*w+x0*4 : y0*w+x1*4]
+		for i := 0; i < len(row0); i += 4 {
+			row0[i] = col.R
+			row0[i+1] = col.G
+			row0[i+2] = col.B
+			row0[i+3] = 255
+		}
+		for y := y0 + 1; y < y1; y++ {
+			copy(c.pixels[y*w+x0*4:y*w+x1*4], row0)
+		}
+		return
+	}
+
+	// Semi-transparent: use span blender directly
+	spanLen := x1 - x0
+	if spanLen > len(c.coverage) {
+		spanLen = len(c.coverage)
+	}
+	covSpan := c.coverage[:spanLen]
+	for i := range covSpan {
+		covSpan[i] = 255
+	}
+
+	for y := y0; y < y1; y++ {
+		dstOff := y*w + x0*4
+		blendSolidSpan(c.pixels[dstOff:dstOff+spanLen*4], covSpan, col.R, col.G, col.B, col.A)
+	}
+	for i := range covSpan {
+		covSpan[i] = 0
+	}
 }
 
 // ---------------------------------------------------------------------------

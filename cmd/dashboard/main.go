@@ -37,7 +37,7 @@ func main() {
 		canvasH = 800
 	)
 
-	fmt.Println("⚡ Plume Engine Phase 2: Complex Dashboard Demo (CSS Grid, Font Shaper & SIMD)")
+	fmt.Println("Plume dashboard demo: rendering with CSS grid and font shaping")
 
 	// 1. Load Font
 	fontPath := filepath.Join("testdata", "default.ttf")
@@ -50,10 +50,10 @@ func main() {
 
 	// 2. Sample Data
 	metrics := []metricCard{
-		{"Total Throughput", "1,842,910 req/s", "+14.2%", plume.Hex("#38bdf8")},
-		{"Layout SLA", "0.0039 ms / 1k", "51x faster", plume.Hex("#34d399")},
-		{"CPU Rasterizer", "280+ FPS", "AVX2 SIMD", plume.Hex("#a78bfa")},
-		{"Heap Allocs", "0 B / frame", "100% Zero-GC", plume.Hex("#fbbf24")},
+		{"Total Requests", "1,842,910", "+14.2%", plume.Hex("#38bdf8")},
+		{"P99 Latency", "4.2 ms", "-8.1%", plume.Hex("#34d399")},
+		{"Error Rate", "0.012%", "-0.004%", plume.Hex("#a78bfa")},
+		{"Active Nodes", "48", "healthy", plume.Hex("#fbbf24")},
 	}
 
 	services := []serviceRow{
@@ -81,9 +81,9 @@ func main() {
 		canvas.DrawPath(logoCircle, plume.Fill(plume.Hex("#38bdf8")))
 		text.DrawText(canvas, cache, font, "PLUME ENGINE / SYSTEM METRICS", hRect.X+36, hRect.Y+28, 18, plume.White)
 
-		badgeRect := raster.Rect{X: hRect.X + hRect.Width - 160, Y: hRect.Y + 8, Width: 160, Height: 28}
+		badgeRect := raster.Rect{X: hRect.X + hRect.Width - 140, Y: hRect.Y + 8, Width: 140, Height: 28}
 		canvas.DrawRoundedRect(badgeRect, 6, plume.Fill(plume.Hex("#134e4a")))
-		text.DrawText(canvas, cache, font, "• 200+ FPS PURE GO", badgeRect.X+14, badgeRect.Y+19, 12, plume.Hex("#2dd4bf"))
+		text.DrawText(canvas, cache, font, "SYSTEM HEALTHY", badgeRect.X+14, badgeRect.Y+19, 12, plume.Hex("#2dd4bf"))
 
 		// 4. Draw Metrics Cards
 		for i, m := range metrics {
@@ -262,11 +262,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to save dashboard PNG: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf(" Saved dashboard render to %s (%dx%d px)\n", outPath, canvasW, canvasH)
+	fmt.Printf("Saved dashboard render to %s (%dx%d px)\n", outPath, canvasW, canvasH)
 
 	// 4. Benchmark Frame Rate
-	const benchFrames = 500
-	fmt.Printf("⏱️  Running frame rate benchmark (%d frames)...\n", benchFrames)
+	const benchFrames = 200
+	fmt.Printf("Running render benchmark (%d frames)...\n", benchFrames)
 
 	start := time.Now()
 	for i := 0; i < benchFrames; i++ {
@@ -277,14 +277,8 @@ func main() {
 	fps := float64(benchFrames) / elapsed.Seconds()
 	msPerFrame := elapsed.Seconds() * 1000 / float64(benchFrames)
 
-	fmt.Printf(" Render Performance:\n")
-	fmt.Printf("   • Total time:    %v\n", elapsed)
-	fmt.Printf("   • Time/Frame:    %.2f ms\n", msPerFrame)
-	fmt.Printf("   • Throughput:    %.1f FPS\n", fps)
-
-	if fps >= 200.0 {
-		fmt.Println(" Target SLA (> 200 FPS on CPU) achieved!")
-	} else {
-		fmt.Printf(" Target SLA: %.1f FPS\n", fps)
-	}
+	fmt.Printf("Performance:\n")
+	fmt.Printf("  Total time: %v\n", elapsed)
+	fmt.Printf("  Latency:    %.2f ms/frame\n", msPerFrame)
+	fmt.Printf("  Framerate:  %.1f FPS\n", fps)
 }

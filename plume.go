@@ -1,11 +1,11 @@
-// Package plume provides a zero-Cgo, high-performance 2D layout and vector
-// rasterization engine for Go. It combines a W3C-compliant CSS Flexbox layout
-// engine with an analytical anti-aliased software rasterizer.
+// Package plume provides 2D vector path rendering and layout primitives in pure Go.
 //
-// Plume is organized into three decoupled sub-packages:
-//   - plume/layout: CSS Flexbox layout computation over a flat arena.
-//   - plume/geom:   Vector path building, flattening, stroking, and transforms.
-//   - plume/raster: CPU software rasterizer with analytical anti-aliasing.
+// The engine is organized into sub-packages:
+//   - plume/layout: CSS Flexbox and Grid layout computation.
+//   - plume/geom:   Vector path construction, curve flattening, stroking, and transforms.
+//   - plume/raster: Software rasterizer with analytical anti-aliasing.
+//   - plume/text:   TrueType font parsing and text shaping.
+//   - plume/gpu:    Vector path triangulation for GPU vertex buffers.
 package plume
 
 import (

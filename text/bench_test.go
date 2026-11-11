@@ -24,7 +24,7 @@ func BenchmarkShapeParagraph(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	text := "Plume is a zero-Cgo, mechanical-sympathy 2D Layout & Vector Rasterization Engine for Go."
+	text := "Plume is a 2D layout and vector rasterization library for Go."
 
 	b.ResetTimer()
 	b.ReportAllocs()

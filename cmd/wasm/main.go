@@ -28,7 +28,7 @@ type UIConfig struct {
 }
 
 func main() {
-	fmt.Println("🪶 Plume WebAssembly Engine initialized")
+	fmt.Println("Plume WebAssembly engine initialized")
 
 	js.Global().Set("plumeRender", js.FuncOf(plumeRender))
 	js.Global().Set("plumeBenchmark", js.FuncOf(plumeBenchmark))
