@@ -8,22 +8,30 @@ Plume is a 2D layout and vector rasterization library written in pure Go. It pro
 - **Layout Engine (`plume/layout`)**:
   - CSS Flexbox (direction, wrap, grow, shrink, basis, alignment, gap, padding, margin, min/max bounds).
   - CSS Grid (flexible `fr` tracks, fixed pixel and percentage tracks, line placement, spans, and auto-placement).
+  - Positioning: `PositionRelative` and `PositionAbsolute` with directional insets (`Top`, `Right`, `Bottom`, `Left`) and dimension auto-stretching.
+  - Alignment: Baseline alignment (`AlignBaseline`, `AlignSelfBaseline`) with line ascent calculation.
+  - Intrinsic sizing: Leaf node measurement callbacks (`MeasureFunc`, `MeasureMode`).
   - Arena-backed tree with integer indices (`NodeID uint32`). Layout passes reuse pre-allocated scratch slices without heap allocations.
 - **Vector Geometry (`plume/geom`)**:
   - Path builder for lines, quadratic Béziers, cubic Béziers, and arcs.
   - De Casteljau curve flattening, bounding box calculation, path stroking with caps and joins, dash patterns, and 2D affine transforms.
 - **Software Rasterizer (`plume/raster`)**:
   - Analytical signed-area anti-aliasing inspired by FreeType and tiny-skia.
-  - Active scanline tracking to avoid clearing or sweeping untouched canvas rows.
+  - Clipping stack (`PushClipRect`, `PushClipPath`, `PopClip`) with state preservation (`Save`, `Restore`).
+  - Full W3C Compositing & Blending: 22 blend modes (Porter-Duff + Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion).
+  - Gamma-correct linear color space blending (IEC 61966-2-1 standard transfer curve).
+  - Subpixel LCD anti-aliasing (`DrawSubpixelMask`) for 3-channel RGB subpixel stripe displays.
+  - Active scanline and horizontal range tracking to eliminate redundant clears and sweeps.
   - AVX2 Go assembly routines on x86-64 for alpha blending with portable pure-Go fallbacks.
 - **Font Engine (`plume/text`)**:
-  - Pure-Go SFNT/TrueType binary parser (`cmap`, `glyf`, `loca`, `head`, `hmtx`, `hhea`, `kern`).
-  - Converts vector glyphs into `geom.Path` structures.
+  - Pure-Go SFNT/TrueType binary parser (`cmap`, `glyf`, `loca`, `head`, `hmtx`, `hhea`, `kern`, `GSUB`).
+  - OpenType `GSUB` table parsing with automatic multi-glyph ligature substitution (e.g. `fi`, `fl`).
+  - Bidirectional text layout (Unicode UAX #9) with RTL script detection (Hebrew, Arabic) and right-to-left glyph positioning.
   - Multi-line text shaper with word wrapping, kerning, and an LRU glyph alpha mask cache.
 - **Ecosystem Adapters**:
   - `adapter/ebiten`: Zero-copy surface bridge and pointer hit testing for Ebitengine games.
   - `adapter/wails`: Canvas serialization to base64 data URLs and raw buffers for desktop webviews.
-  - `gpu`: Ear-clipping path tessellator for generating GPU index/vertex buffers.
+  - `gpu`: Vector polygon tessellator supporting interior cutouts (holes) for generating GPU index/vertex buffers.
   - `playground`: In-browser WebAssembly interactive layout preview.
 
 ## Architecture
@@ -96,10 +104,10 @@ func main() {
 
 ## Current Limitations & Roadmap
 
-- **Text Shaping**: The text package parses TrueType outlines and handles Latin/Cyrillic horizontal kerning and word wrapping. It does not implement full OpenType layout tables (`GSUB`/`GPOS`) required for complex scripts (such as Arabic or Devanagari) or colored emoji glyphs (`COLR`/`CBDT`).
-- **Color Spaces**: Compositing operates in premultiplied sRGB. Linear color space blending and ICC profile color management are not yet implemented.
-- **Clipping**: Arbitrary path clipping is currently handled at the geometry / bounding box level rather than through stencil clip buffers.
-- **Multi-Threading**: Rasterization runs synchronously on a single goroutine per canvas. Tile-based multi-threaded parallel sweeping is planned for future releases.
+- **Complex Text Shaping**: While OpenType `GSUB` ligatures (Type 4) and bidirectional right-to-left layout are implemented, `GPOS` mark-to-base and mark-to-mark positioning tables (required for complex Indic scripts like Devanagari or Bengali) and full Arabic contextual joining forms are not yet complete. For full HarfBuzz-equivalent shaping, an external shaper is required.
+- **Color Fonts**: Colored glyph formats (`COLR`/`CPAL` and `CBDT`/`CBLC`) are not currently parsed.
+- **Multi-Threading**: Rasterization runs synchronously on a single goroutine per canvas. Tile-based parallel sweeping across multiple worker goroutines is planned.
+- **Production Readiness**: Plume is a new, pure-Go implementation. While it passes unit tests, race checks, and benchmarks, it has not yet undergone years of fuzz testing against malicious fonts or hostile SVG/HTML vectors in multi-tenant environments.
 
 ## License
 

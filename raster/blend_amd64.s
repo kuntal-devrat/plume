@@ -12,11 +12,11 @@ TEXT ·cpuid(SB), NOSPLIT, $0-24
 	RET
 
 // func blendSolidSpanAVX2(dst []uint8, coverage []uint8, srcR, srcG, srcB, srcA uint8)
-TEXT ·blendSolidSpanAVX2(SB), NOSPLIT, $0-56
+TEXT ·blendSolidSpanAVX2(SB), NOSPLIT, $0-52
 	MOVQ dst_base+0(FP), DI       // DI = dst
 	MOVQ dst_len+8(FP), DX        // DX = dst_len
-	MOVQ cov_base+24(FP), SI      // SI = coverage
-	MOVQ cov_len+32(FP), CX       // CX = cov_len
+	MOVQ coverage_base+24(FP), SI // SI = coverage
+	MOVQ coverage_len+32(FP), CX  // CX = cov_len
 
 	// Ensure we don't read beyond dst
 	SHRQ $2, DX                   // DX = max pixels in dst
