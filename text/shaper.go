@@ -29,11 +29,20 @@ type TextLayout struct {
 }
 
 // ShapeText shapes a string into one or more lines of positioned glyphs,
-// applying kerning, font metrics, and word wrapping at maxWidth.
-// If maxWidth <= 0, no word wrapping is performed (single-line or split on explicit newlines only).
+// applying OpenType GSUB ligatures, kerning, font metrics, and word wrapping at maxWidth.
+// Bidirectional direction is automatically detected per UAX #9.
 func ShapeText(font *Font, text string, fontSize float32, maxWidth float32) TextLayout {
+	return ShapeTextWithDirection(font, text, fontSize, maxWidth, DirectionAuto)
+}
+
+// ShapeTextWithDirection shapes text with an explicit layout direction.
+func ShapeTextWithDirection(font *Font, text string, fontSize float32, maxWidth float32, dir Direction) TextLayout {
 	if font == nil || len(text) == 0 {
 		return TextLayout{}
+	}
+
+	if dir == DirectionAuto {
+		dir = DetectDirection(text)
 	}
 
 	lm := font.LineMetrics(fontSize)
@@ -44,7 +53,7 @@ func ShapeText(font *Font, text string, fontSize float32, maxWidth float32) Text
 
 	for _, para := range rawParagraphs {
 		if maxWidth <= 0 {
-			line := shapeSingleLine(font, para, fontSize)
+			line := shapeSingleLine(font, para, fontSize, dir)
 			line.Ascent = lm.Ascent
 			line.Descent = lm.Descent
 			line.Height = lm.LineHeight
@@ -53,7 +62,7 @@ func ShapeText(font *Font, text string, fontSize float32, maxWidth float32) Text
 		}
 
 		// Word wrap paragraph into lines <= maxWidth
-		wrapped := wrapParagraph(font, para, fontSize, maxWidth)
+		wrapped := wrapParagraph(font, para, fontSize, maxWidth, dir)
 		for _, wLine := range wrapped {
 			wLine.Ascent = lm.Ascent
 			wLine.Descent = lm.Descent
@@ -82,15 +91,21 @@ func ShapeText(font *Font, text string, fontSize float32, maxWidth float32) Text
 	}
 }
 
-func shapeSingleLine(font *Font, s string, fontSize float32) Line {
+func shapeSingleLine(font *Font, s string, fontSize float32, dir Direction) Line {
 	runes := []rune(s)
-	glyphs := make([]ShapedGlyph, 0, len(runes))
+	rawGids := make([]uint16, len(runes))
+	for i, r := range runes {
+		rawGids[i] = font.GlyphIndex(r)
+	}
+
+	// Apply OpenType GSUB ligatures
+	gids := font.ApplyLigatures(rawGids)
+	glyphs := make([]ShapedGlyph, 0, len(gids))
 
 	var curX float32
 	var prevID uint16
 
-	for i, r := range runes {
-		gid := font.GlyphIndex(r)
+	for i, gid := range gids {
 		if i > 0 && prevID != 0 && gid != 0 {
 			curX += font.Kerning(prevID, gid, fontSize)
 		}
@@ -107,13 +122,22 @@ func shapeSingleLine(font *Font, s string, fontSize float32) Line {
 		prevID = gid
 	}
 
+	totalWidth := curX
+
+	// Handle Right-to-Left reordering
+	if dir == DirectionRTL && len(glyphs) > 0 {
+		for i := range glyphs {
+			glyphs[i].X = totalWidth - glyphs[i].X - glyphs[i].Advance
+		}
+	}
+
 	return Line{
 		Glyphs: glyphs,
-		Width:  curX,
+		Width:  totalWidth,
 	}
 }
 
-func wrapParagraph(font *Font, text string, fontSize, maxWidth float32) []Line {
+func wrapParagraph(font *Font, text string, fontSize, maxWidth float32, dir Direction) []Line {
 	if len(text) == 0 {
 		return []Line{{}}
 	}
@@ -126,7 +150,7 @@ func wrapParagraph(font *Font, text string, fontSize, maxWidth float32) []Line {
 	var currentWidth float32
 
 	for _, w := range words {
-		wLine := shapeSingleLine(font, w, fontSize)
+		wLine := shapeSingleLine(font, w, fontSize, dir)
 		if len(currentRunes) == 0 {
 			currentRunes = append(currentRunes, []rune(w)...)
 			currentWidth = wLine.Width
@@ -138,19 +162,15 @@ func wrapParagraph(font *Font, text string, fontSize, maxWidth float32) []Line {
 			currentWidth += wLine.Width
 		} else {
 			// Trim trailing spaces before completing line
-			lineStr := strings.TrimRight(string(currentRunes), " \t")
-			lines = append(lines, shapeSingleLine(font, lineStr, fontSize))
-
-			// If word itself starts with space, trim leading space for new line
-			trimmedWord := strings.TrimLeft(w, " \t")
-			currentRunes = []rune(trimmedWord)
-			currentWidth = shapeSingleLine(font, trimmedWord, fontSize).Width
+			trimmed := strings.TrimRightFunc(string(currentRunes), unicode.IsSpace)
+			lines = append(lines, shapeSingleLine(font, trimmed, fontSize, dir))
+			currentRunes = []rune(strings.TrimLeftFunc(w, unicode.IsSpace))
+			currentWidth = shapeSingleLine(font, string(currentRunes), fontSize, dir).Width
 		}
 	}
 
 	if len(currentRunes) > 0 {
-		lineStr := strings.TrimRight(string(currentRunes), " \t")
-		lines = append(lines, shapeSingleLine(font, lineStr, fontSize))
+		lines = append(lines, shapeSingleLine(font, string(currentRunes), fontSize, dir))
 	}
 
 	return lines
@@ -159,18 +179,21 @@ func wrapParagraph(font *Font, text string, fontSize, maxWidth float32) []Line {
 func splitIntoWords(s string) []string {
 	var words []string
 	var cur strings.Builder
-	runes := []rune(s)
+	inSpace := false
 
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		cur.WriteRune(r)
-		if unicode.IsSpace(r) {
+	for _, r := range s {
+		isSp := unicode.IsSpace(r)
+		if isSp != inSpace && cur.Len() > 0 {
 			words = append(words, cur.String())
 			cur.Reset()
 		}
+		inSpace = isSp
+		cur.WriteRune(r)
 	}
+
 	if cur.Len() > 0 {
 		words = append(words, cur.String())
 	}
+
 	return words
 }

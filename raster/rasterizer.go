@@ -43,6 +43,8 @@ type Rasterizer struct {
 
 	minY int // Track dirty scanline range for fast reset and sweep
 	maxY int
+	minX int
+	maxX int
 }
 
 // NewRasterizer creates a Rasterizer for a canvas of the given pixel
@@ -54,6 +56,8 @@ func NewRasterizer(width, height int) *Rasterizer {
 		cells:  make([]cell, width*height),
 		minY:   height,
 		maxY:   -1,
+		minX:   width,
+		maxX:   -1,
 	}
 }
 
@@ -73,12 +77,14 @@ func (r *Rasterizer) Reset() {
 	}
 	r.minY = r.height
 	r.maxY = -1
+	r.minX = r.width
+	r.maxX = -1
 }
 
 // AddPath flattens p (converting any curves to line segments) and adds the
 // resulting edges to the rasterizer's coverage accumulator.
 func (r *Rasterizer) AddPath(p geom.Path) {
-	flat := geom.Flatten(p, 0.25)
+	flat := geom.Flatten(p, 0.5)
 
 	var curX, curY float32
 	var startX, startY float32
@@ -202,6 +208,13 @@ func (r *Rasterizer) addEdge(x0, y0, x1, y1 float32) {
 		ixMin := int(xMin)
 		ixMax := int(xMax)
 
+		if ixMin < r.minX {
+			r.minX = ixMin
+		}
+		if ixMax > r.maxX {
+			r.maxX = ixMax
+		}
+
 		if ixMin == ixMax {
 			// Segment is entirely within column ixMin
 			X := ixMin
@@ -277,10 +290,15 @@ func (r *Rasterizer) Rasterize(dst []uint8) (int, int) {
 		yEnd = r.height - 1
 	}
 
+	xEnd := r.maxX + 1
+	if xEnd > w {
+		xEnd = w
+	}
+
 	for y := yStart; y <= yEnd; y++ {
 		var cover float32
 		rowOff := y * w
-		for x := 0; x < w; x++ {
+		for x := 0; x < xEnd; x++ {
 			c := &r.cells[rowOff+x]
 			cover += c.cover
 			alpha := cover - c.area

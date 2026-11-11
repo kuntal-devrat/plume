@@ -60,3 +60,34 @@ func TestMockTexture(t *testing.T) {
 	}
 	tex.Release()
 }
+
+func TestTessellatePolygonWithHole(t *testing.T) {
+	// Outer rectangle (CCW)
+	var b geom.PathBuilder
+	b.MoveTo(0, 0)
+	b.LineTo(0, 100)
+	b.LineTo(100, 100)
+	b.LineTo(100, 0)
+	b.Close()
+
+	// Inner hole rectangle (CW: negative signed area)
+	b.MoveTo(25, 25)
+	b.LineTo(75, 25)
+	b.LineTo(75, 75)
+	b.LineTo(25, 75)
+	b.Close()
+
+	p := b.Finish()
+	var mesh Mesh
+	TessellatePath(p, 0.5, plume.White, &mesh)
+
+	if len(mesh.Vertices) == 0 || len(mesh.Indices) == 0 {
+		t.Fatalf("expected non-empty mesh for polygon with hole")
+	}
+
+	dev := &MockDevice{}
+	dc := []DrawCall{{IndexOffset: 0, IndexCount: uint32(len(mesh.Indices))}}
+	if err := dev.Submit(&mesh, dc); err != nil {
+		t.Fatalf("mesh verification failed: %v", err)
+	}
+}

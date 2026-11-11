@@ -62,6 +62,10 @@ type Font struct {
 
 	// 'kern' table offset
 	kernOffset uint32
+
+	// 'GSUB' cached ligatures
+	ligatures  LigatureMap
+	gsubParsed bool
 }
 
 // ParseFont parses a TrueType or OpenType font from byte slice.

@@ -20,7 +20,7 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	child := node.FirstChild
 	for child != InvalidNode {
 		c := &t.nodes[child]
-		if c.Style.Display != DisplayNone {
+		if c.Style.Display != DisplayNone && c.Style.Position != PositionAbsolute {
 			cs := &c.Style
 
 			// Columns
@@ -372,6 +372,9 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			c.Computed.Y = itemY
 		}
 	}
+
+	// Position Absolute Children
+	t.layoutAbsoluteChildren(id, contentWidth, contentHeight, padLeft, padTop)
 }
 
 // resolveTracks computes the pixel sizes of grid tracks.

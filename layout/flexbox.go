@@ -35,6 +35,33 @@ func (t *Tree) computeNode(id NodeID, parentWidth, parentHeight float32) {
 	padBottom := t.resolveDimensionOrZero(node.Style.Padding.Bottom, parentHeight)
 	padLeft := t.resolveDimensionOrZero(node.Style.Padding.Left, parentWidth)
 
+	// Call intrinsic measure func if registered and dimensions are auto
+	if int(id) < len(t.measureFuncs) && t.measureFuncs[id] != nil {
+		fn := t.measureFuncs[id]
+		var wMode, hMode MeasureMode
+		wArg := parentWidth
+		hArg := parentHeight
+		if node.Style.Width.Kind != DimensionAuto {
+			wMode = MeasureExact
+			wArg = width
+		} else {
+			wMode = MeasureAtMost
+		}
+		if node.Style.Height.Kind != DimensionAuto {
+			hMode = MeasureExact
+			hArg = height
+		} else {
+			hMode = MeasureAtMost
+		}
+		mw, mh := fn(t, id, wArg, wMode, hArg, hMode)
+		if node.Style.Width.Kind == DimensionAuto {
+			width = mw + padLeft + padRight
+		}
+		if node.Style.Height.Kind == DimensionAuto {
+			height = mh + padTop + padBottom
+		}
+	}
+
 	// If width/height are auto and we have a definite parent, default to
 	// the parent size (block-level behaviour for the root / non-flex items).
 	if node.Style.Width.Kind == DimensionAuto && width < 0 {
@@ -130,10 +157,10 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	child := node.FirstChild
 	for child != InvalidNode {
 		c := &t.nodes[child]
-		if c.Style.Display != DisplayNone {
+		if c.Style.Display != DisplayNone && c.Style.Position != PositionAbsolute {
 			fi := flexItem{
-				node:     child,
-				flexGrow: c.Style.FlexGrow,
+				node:       child,
+				flexGrow:   c.Style.FlexGrow,
 				flexShrink: c.Style.FlexShrink,
 			}
 			t.scratch = append(t.scratch, fi)
@@ -143,6 +170,7 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 
 	items := t.scratch
 	if len(items) == 0 {
+		t.layoutAbsoluteChildren(id, contentWidth, contentHeight, padLeft, padTop)
 		return
 	}
 
@@ -154,7 +182,7 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		cs := &t.nodes[it.node].Style
 
 		// Resolve flex basis.
-		basis := t.resolveFlexBasis(cs, isRow, mainSize)
+		basis := t.resolveFlexBasis(it.node, cs, isRow, mainSize)
 
 		// Resolve margins on the main axis for this item.
 		var marginMainStart, marginMainEnd float32
@@ -370,13 +398,25 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			if isRow {
 				cross = t.resolveDimension(cs.Height, crossSize)
 				if cs.Height.Kind == DimensionAuto {
-					cross = 0
+					if int(lineItems[i].node) < len(t.measureFuncs) && t.measureFuncs[lineItems[i].node] != nil {
+						fn := t.measureFuncs[lineItems[i].node]
+						_, mh := fn(t, lineItems[i].node, lineItems[i].targetMain, MeasureExact, crossSize, MeasureAtMost)
+						cross = mh
+					} else {
+						cross = 0
+					}
 				}
 				cross = t.clampSize(cross, cs.MinHeight, cs.MaxHeight, crossSize)
 			} else {
 				cross = t.resolveDimension(cs.Width, crossSize)
 				if cs.Width.Kind == DimensionAuto {
-					cross = 0
+					if int(lineItems[i].node) < len(t.measureFuncs) && t.measureFuncs[lineItems[i].node] != nil {
+						fn := t.measureFuncs[lineItems[i].node]
+						mw, _ := fn(t, lineItems[i].node, crossSize, MeasureAtMost, lineItems[i].targetMain, MeasureExact)
+						cross = mw
+					} else {
+						cross = 0
+					}
 				}
 				cross = t.clampSize(cross, cs.MinWidth, cs.MaxWidth, crossSize)
 			}
@@ -414,6 +454,42 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		line := &t.lines[li]
 		lineItems := items[line.startIdx : line.startIdx+line.count]
 
+		// Find max baseline for items using baseline alignment
+		var maxBaseline float32
+		for i := range lineItems {
+			it := &lineItems[i]
+			cs := &t.nodes[it.node].Style
+			align := node.Style.AlignItems
+			switch cs.AlignSelf {
+			case AlignSelfStretch:
+				align = AlignStretch
+			case AlignSelfFlexStart:
+				align = AlignFlexStart
+			case AlignSelfFlexEnd:
+				align = AlignFlexEnd
+			case AlignSelfCenter:
+				align = AlignCenter
+			case AlignSelfBaseline:
+				align = AlignBaseline
+			}
+
+			if align == AlignBaseline {
+				b := it.crossSize
+				if int(it.node) < len(t.baselines) && t.baselines[it.node] >= 0 {
+					b = t.baselines[it.node]
+				}
+				var mStart float32
+				if isRow {
+					mStart = t.resolveDimensionOrZero(cs.Margin.Top, parentHeight)
+				} else {
+					mStart = t.resolveDimensionOrZero(cs.Margin.Left, parentWidth)
+				}
+				if b+mStart > maxBaseline {
+					maxBaseline = b + mStart
+				}
+			}
+		}
+
 		for i := range lineItems {
 			cs := &t.nodes[lineItems[i].node].Style
 
@@ -428,6 +504,8 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				align = AlignFlexEnd
 			case AlignSelfCenter:
 				align = AlignCenter
+			case AlignSelfBaseline:
+				align = AlignBaseline
 			}
 
 			var marginCrossStart, marginCrossEnd float32
@@ -447,8 +525,14 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 					lineItems[i].crossSize = availCross
 				}
 				lineItems[i].crossOffset = marginCrossStart
-			case AlignFlexStart, AlignBaseline:
+			case AlignFlexStart:
 				lineItems[i].crossOffset = marginCrossStart
+			case AlignBaseline:
+				b := lineItems[i].crossSize
+				if int(lineItems[i].node) < len(t.baselines) && t.baselines[lineItems[i].node] >= 0 {
+					b = t.baselines[lineItems[i].node]
+				}
+				lineItems[i].crossOffset = marginCrossStart + (maxBaseline - b)
 			case AlignFlexEnd:
 				lineItems[i].crossOffset = line.crossSize - lineItems[i].crossSize - marginCrossEnd
 			case AlignCenter:
@@ -537,6 +621,24 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				}
 			}
 
+			// Relative positioning offsets
+			if cn.Style.Position == PositionRelative {
+				top := t.resolveDimensionOrZero(cn.Style.Inset.Top, parentHeight)
+				bottom := t.resolveDimensionOrZero(cn.Style.Inset.Bottom, parentHeight)
+				left := t.resolveDimensionOrZero(cn.Style.Inset.Left, parentWidth)
+				right := t.resolveDimensionOrZero(cn.Style.Inset.Right, parentWidth)
+				if cn.Style.Inset.Left.Kind != DimensionAuto {
+					x += left
+				} else if cn.Style.Inset.Right.Kind != DimensionAuto {
+					x -= right
+				}
+				if cn.Style.Inset.Top.Kind != DimensionAuto {
+					y += top
+				} else if cn.Style.Inset.Bottom.Kind != DimensionAuto {
+					y -= bottom
+				}
+			}
+
 			cn.Computed.X = x
 			cn.Computed.Y = y
 			cn.Computed.Width = w
@@ -552,10 +654,74 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			}
 		}
 	}
+
+	// Layout absolutely-positioned children
+	t.layoutAbsoluteChildren(id, contentWidth, contentHeight, padLeft, padTop)
+}
+
+// layoutAbsoluteChildren computes the layout of children positioned with PositionAbsolute.
+func (t *Tree) layoutAbsoluteChildren(id NodeID, contentWidth, contentHeight, padLeft, padTop float32) {
+	child := t.nodes[id].FirstChild
+	for child != InvalidNode {
+		c := &t.nodes[child]
+		if c.Style.Display != DisplayNone && c.Style.Position == PositionAbsolute {
+			t.computeNode(child, contentWidth, contentHeight)
+
+			var x, y float32
+			w := c.Computed.Width
+			h := c.Computed.Height
+
+			// Horizontal positioning
+			hasLeft := c.Style.Inset.Left.Kind != DimensionAuto
+			hasRight := c.Style.Inset.Right.Kind != DimensionAuto
+			left := t.resolveDimensionOrZero(c.Style.Inset.Left, contentWidth)
+			right := t.resolveDimensionOrZero(c.Style.Inset.Right, contentWidth)
+
+			if hasLeft && hasRight && c.Style.Width.Kind == DimensionAuto {
+				x = padLeft + left
+				w = contentWidth - left - right
+				if w < 0 {
+					w = 0
+				}
+				c.Computed.Width = w
+			} else if hasLeft {
+				x = padLeft + left
+			} else if hasRight {
+				x = padLeft + contentWidth - right - w
+			} else {
+				x = padLeft
+			}
+
+			// Vertical positioning
+			hasTop := c.Style.Inset.Top.Kind != DimensionAuto
+			hasBottom := c.Style.Inset.Bottom.Kind != DimensionAuto
+			top := t.resolveDimensionOrZero(c.Style.Inset.Top, contentHeight)
+			bottom := t.resolveDimensionOrZero(c.Style.Inset.Bottom, contentHeight)
+
+			if hasTop && hasBottom && c.Style.Height.Kind == DimensionAuto {
+				y = padTop + top
+				h = contentHeight - top - bottom
+				if h < 0 {
+					h = 0
+				}
+				c.Computed.Height = h
+			} else if hasTop {
+				y = padTop + top
+			} else if hasBottom {
+				y = padTop + contentHeight - bottom - h
+			} else {
+				y = padTop
+			}
+
+			c.Computed.X = x
+			c.Computed.Y = y
+		}
+		child = c.NextSibling
+	}
 }
 
 // resolveFlexBasis determines the initial main-axis size of a flex item.
-func (t *Tree) resolveFlexBasis(s *Style, isRow bool, mainSize float32) float32 {
+func (t *Tree) resolveFlexBasis(node NodeID, s *Style, isRow bool, mainSize float32) float32 {
 	// 1. Explicit flex-basis
 	switch s.FlexBasis.Kind {
 	case DimensionPx:
@@ -576,7 +742,15 @@ func (t *Tree) resolveFlexBasis(s *Style, isRow bool, mainSize float32) float32 
 	case DimensionPercent:
 		return mainSize * dim.Value / 100
 	}
-	// 3. Content sizing — Phase 1 returns 0.
+	// 3. Intrinsic measure func if registered
+	if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
+		fn := t.measureFuncs[node]
+		mw, mh := fn(t, node, mainSize, MeasureAtMost, 0, MeasureUndefined)
+		if isRow {
+			return mw
+		}
+		return mh
+	}
 	return 0
 }
 

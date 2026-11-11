@@ -8,6 +8,22 @@ type NodeID uint32
 // uninitialised parent/child/sibling links.
 const InvalidNode NodeID = 0xFFFFFFFF
 
+// MeasureMode defines the constraint mode passed to a [MeasureFunc].
+type MeasureMode uint8
+
+const (
+	// MeasureUndefined indicates no constraint on the dimension.
+	MeasureUndefined MeasureMode = iota
+	// MeasureExact indicates the dimension must match the provided size.
+	MeasureExact
+	// MeasureAtMost indicates the dimension cannot exceed the provided size.
+	MeasureAtMost
+)
+
+// MeasureFunc is an intrinsic sizing callback invoked for leaf nodes whose
+// dimensions depend on content (e.g. text layout or images).
+type MeasureFunc func(tree *Tree, node NodeID, width float32, widthMode MeasureMode, height float32, heightMode MeasureMode) (w, h float32)
+
 // LayoutNode stores the tree structure (parent/child/sibling links),
 // styling information, and the computed layout rectangle for one node.
 type LayoutNode struct {
@@ -76,19 +92,38 @@ type Tree struct {
 	colSizes  []float32
 	rowSizes  []float32
 	occupied  []bool // grid occupancy map
+
+	measureFuncs []MeasureFunc
+	baselines    []float32
 }
 
 // NewTree creates an empty layout tree.
 func NewTree() *Tree {
 	return &Tree{
-		nodes:     make([]LayoutNode, 0, 64),
-		root:      InvalidNode,
-		scratch:   make([]flexItem, 0, 64),
-		lines:     make([]flexLine, 0, 8),
-		gridItems: make([]gridItemScratch, 0, 64),
-		colSizes:  make([]float32, 0, 16),
-		rowSizes:  make([]float32, 0, 16),
-		occupied:  make([]bool, 0, 4096),
+		nodes:        make([]LayoutNode, 0, 64),
+		root:         InvalidNode,
+		scratch:      make([]flexItem, 0, 64),
+		lines:        make([]flexLine, 0, 8),
+		gridItems:    make([]gridItemScratch, 0, 64),
+		colSizes:     make([]float32, 0, 16),
+		rowSizes:     make([]float32, 0, 16),
+		occupied:     make([]bool, 0, 4096),
+		measureFuncs: make([]MeasureFunc, 0, 64),
+		baselines:    make([]float32, 0, 64),
+	}
+}
+
+// SetMeasureFunc registers an intrinsic sizing callback for node id.
+func (t *Tree) SetMeasureFunc(id NodeID, fn MeasureFunc) {
+	if int(id) < len(t.measureFuncs) {
+		t.measureFuncs[id] = fn
+	}
+}
+
+// SetBaseline sets an explicit baseline offset from top edge for node id.
+func (t *Tree) SetBaseline(id NodeID, baseline float32) {
+	if int(id) < len(t.baselines) {
+		t.baselines[id] = baseline
 	}
 }
 
@@ -107,6 +142,8 @@ func (t *Tree) NewNode(style Style) NodeID {
 	if t.root == InvalidNode {
 		t.root = id
 	}
+	t.measureFuncs = append(t.measureFuncs, nil)
+	t.baselines = append(t.baselines, -1)
 	return id
 }
 

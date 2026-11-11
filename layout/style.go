@@ -1,6 +1,21 @@
 package layout
 
 // ---------------------------------------------------------------------------
+// PositionType
+// ---------------------------------------------------------------------------
+
+// PositionType specifies how an element is positioned in the layout.
+type PositionType uint8
+
+const (
+	// PositionRelative positions the node relative to its normal in-flow position.
+	PositionRelative PositionType = iota
+	// PositionAbsolute removes the node from normal flow and positions it
+	// relative to its containing block.
+	PositionAbsolute
+)
+
+// ---------------------------------------------------------------------------
 // Display
 // ---------------------------------------------------------------------------
 
@@ -143,6 +158,8 @@ const (
 	AlignSelfFlexEnd
 	// AlignSelfCenter centers this item on the cross axis.
 	AlignSelfCenter
+	// AlignSelfBaseline aligns this item to the baseline.
+	AlignSelfBaseline
 )
 
 // ---------------------------------------------------------------------------
@@ -197,9 +214,13 @@ func EdgesPx(top, right, bottom, left float32) Edges {
 // Style
 // ---------------------------------------------------------------------------
 
-// Style holds all CSS Flexbox properties for a layout node. Use
+// Style holds all CSS Flexbox and Grid properties for a layout node. Use
 // [DefaultStyle] to get a value pre-filled with sensible CSS defaults.
 type Style struct {
+	// Positioning
+	Position PositionType
+	Inset    Edges // Top, Right, Bottom, Left offsets
+
 	// Container properties
 	Display        Display
 	FlexDirection  FlexDirection
@@ -254,6 +275,7 @@ type Style struct {
 //   - Everything else zero-valued
 func DefaultStyle() Style {
 	return Style{
+		Position:   PositionRelative,
 		Display:    DisplayFlex,
 		FlexShrink: 1,
 	}

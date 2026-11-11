@@ -25,6 +25,12 @@ type Rect = layout.Rect
 // Canvas
 // ---------------------------------------------------------------------------
 
+type canvasState struct {
+	clipMask  []uint8
+	blendMode BlendMode
+	linearBlend bool
+}
+
 // Canvas is a 2D rendering surface backed by a premultiplied RGBA pixel
 // buffer. It owns a reusable Rasterizer and coverage buffer so that
 // multiple draw calls can be issued without per-call allocations.
@@ -32,11 +38,15 @@ type Rect = layout.Rect
 // Pixel data is stored in row-major order as a flat []uint8 with four bytes
 // per pixel (R, G, B, A), all premultiplied.
 type Canvas struct {
-	width      int
-	height     int
-	pixels     []uint8      // RGBA, len = width*height*4
-	rasterizer *Rasterizer
-	coverage   []uint8      // alpha mask, len = width*height
+	width       int
+	height      int
+	pixels      []uint8 // RGBA, len = width*height*4
+	rasterizer  *Rasterizer
+	coverage    []uint8 // alpha mask, len = width*height
+	clipMask    []uint8 // active clip alpha mask (nil if no clip active)
+	clipStack   []canvasState
+	blendMode   BlendMode
+	linearBlend bool
 }
 
 // NewCanvas creates a Canvas of the given dimensions. All pixels are
@@ -48,7 +58,109 @@ func NewCanvas(width, height int) *Canvas {
 		pixels:     make([]uint8, width*height*4),
 		rasterizer: NewRasterizer(width, height),
 		coverage:   make([]uint8, width*height),
+		blendMode:  BlendModeSrcOver,
 	}
+}
+
+// SetBlendMode changes the active compositing blend mode.
+func (c *Canvas) SetBlendMode(mode BlendMode) {
+	c.blendMode = mode
+}
+
+// SetLinearBlending enables or disables gamma-correct linear color space blending.
+func (c *Canvas) SetLinearBlending(enabled bool) {
+	c.linearBlend = enabled
+}
+
+// Save pushes the current canvas clip and blend state onto an internal stack.
+func (c *Canvas) Save() {
+	var savedMask []uint8
+	if c.clipMask != nil {
+		savedMask = make([]uint8, len(c.clipMask))
+		copy(savedMask, c.clipMask)
+	}
+	c.clipStack = append(c.clipStack, canvasState{
+		clipMask:    savedMask,
+		blendMode:   c.blendMode,
+		linearBlend: c.linearBlend,
+	})
+}
+
+// Restore pops the most recently saved state from the stack.
+func (c *Canvas) Restore() {
+	if len(c.clipStack) == 0 {
+		return
+	}
+	last := c.clipStack[len(c.clipStack)-1]
+	c.clipStack = c.clipStack[:len(c.clipStack)-1]
+	c.clipMask = last.clipMask
+	c.blendMode = last.blendMode
+	c.linearBlend = last.linearBlend
+}
+
+// PushClipRect intersects the current clipping region with an axis-aligned rectangle.
+func (c *Canvas) PushClipRect(r Rect) {
+	c.Save()
+	x0 := int(r.X + 0.5)
+	y0 := int(r.Y + 0.5)
+	x1 := int(r.X + r.Width + 0.5)
+	y1 := int(r.Y + r.Height + 0.5)
+
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > c.width {
+		x1 = c.width
+	}
+	if y1 > c.height {
+		y1 = c.height
+	}
+
+	w := c.width
+	if c.clipMask == nil {
+		c.clipMask = make([]uint8, c.width*c.height)
+		for y := y0; y < y1; y++ {
+			rowOff := y * w
+			for x := x0; x < x1; x++ {
+				c.clipMask[rowOff+x] = 255
+			}
+		}
+	} else {
+		for y := 0; y < c.height; y++ {
+			rowOff := y * w
+			for x := 0; x < w; x++ {
+				if x < x0 || x >= x1 || y < y0 || y >= y1 {
+					c.clipMask[rowOff+x] = 0
+				}
+			}
+		}
+	}
+}
+
+// PushClipPath intersects the current clipping region with an arbitrary geometric path.
+func (c *Canvas) PushClipPath(p geom.Path) {
+	c.Save()
+	c.rasterizer.Reset()
+	c.rasterizer.AddPath(p)
+
+	tempMask := make([]uint8, c.width*c.height)
+	c.rasterizer.Rasterize(tempMask)
+
+	if c.clipMask == nil {
+		c.clipMask = tempMask
+	} else {
+		for i := range c.clipMask {
+			c.clipMask[i] = uint8((uint16(c.clipMask[i])*uint16(tempMask[i]) + 128) / 255)
+		}
+	}
+}
+
+// PopClip restores the previous clip state (synonym for Restore).
+func (c *Canvas) PopClip() {
+	c.Restore()
 }
 
 // Width returns the canvas width in pixels.
@@ -109,7 +221,41 @@ func (c *Canvas) DrawPath(p geom.Path, paint plume.Paint) {
 	col := paint.Color
 	for y := yStart; y <= yEnd; y++ {
 		rowOff := y * w
-		blendSolidSpan(c.pixels[rowOff*4:(rowOff+w)*4], c.coverage[rowOff:rowOff+w], col.R, col.G, col.B, col.A)
+		covRow := c.coverage[rowOff : rowOff+w]
+
+		// Apply active clip mask if present
+		if c.clipMask != nil {
+			clipRow := c.clipMask[rowOff : rowOff+w]
+			for x := 0; x < w; x++ {
+				if covRow[x] > 0 {
+					covRow[x] = uint8((uint16(covRow[x])*uint16(clipRow[x]) + 128) / 255)
+				}
+			}
+		}
+
+		if c.blendMode == BlendModeSrcOver && !c.linearBlend {
+			blendSolidSpan(c.pixels[rowOff*4:(rowOff+w)*4], covRow, col.R, col.G, col.B, col.A)
+		} else {
+			pixRow := c.pixels[rowOff*4 : (rowOff+w)*4]
+			for x := 0; x < w; x++ {
+				cov := covRow[x]
+				if cov == 0 {
+					continue
+				}
+				pxOff := x * 4
+				dr, dg, db, da := pixRow[pxOff], pixRow[pxOff+1], pixRow[pxOff+2], pixRow[pxOff+3]
+				sr := uint8((uint16(col.R)*uint16(cov) + 128) / 255)
+				sg := uint8((uint16(col.G)*uint16(cov) + 128) / 255)
+				sb := uint8((uint16(col.B)*uint16(cov) + 128) / 255)
+				sa := uint8((uint16(col.A)*uint16(cov) + 128) / 255)
+				if c.linearBlend {
+					pixRow[pxOff], pixRow[pxOff+1], pixRow[pxOff+2], pixRow[pxOff+3] = BlendLinearSrcOver(dr, dg, db, da, sr, sg, sb, sa)
+				} else {
+					pixRow[pxOff], pixRow[pxOff+1], pixRow[pxOff+2], pixRow[pxOff+3] = Blend(dr, dg, db, da, sr, sg, sb, sa, c.blendMode)
+				}
+			}
+		}
+
 		// Clean up dirty row of coverage buffer for next draw
 		for x := 0; x < w; x++ {
 			c.coverage[rowOff+x] = 0
@@ -123,6 +269,12 @@ func (c *Canvas) DrawPath(p geom.Path, paint plume.Paint) {
 
 // DrawRect draws a filled axis-aligned rectangle.
 func (c *Canvas) DrawRect(r Rect, paint plume.Paint) {
+	// If clipping, non-standard blend mode, or linear blending is active, use path pipeline
+	if c.clipMask != nil || c.blendMode != BlendModeSrcOver || c.linearBlend {
+		c.DrawPath(geom.Rect(r.X, r.Y, r.Width, r.Height), paint)
+		return
+	}
+
 	// Fast path for axis-aligned rectangles: bypass polygon rasterizer
 	x0 := int(r.X + 0.5)
 	y0 := int(r.Y + 0.5)
@@ -252,6 +404,65 @@ func (c *Canvas) DrawMask(mask []uint8, dstX, dstY, maskW, maskH int, col plume.
 		maskOff := my*maskW + mxStart
 
 		blendSolidSpan(c.pixels[dstOff:dstOff+spanLen*4], mask[maskOff:maskOff+spanLen], col.R, col.G, col.B, col.A)
+	}
+}
+
+// DrawSubpixelMask composites a 3-channel RGB subpixel coverage mask onto the canvas
+// for LCD subpixel anti-aliasing. maskRGB has 3 bytes per pixel (R, G, B coverage).
+func (c *Canvas) DrawSubpixelMask(maskRGB []uint8, dstX, dstY, maskW, maskH int, col plume.Color) {
+	if maskW <= 0 || maskH <= 0 || len(maskRGB) < maskW*maskH*3 {
+		return
+	}
+
+	for my := 0; my < maskH; my++ {
+		cy := dstY + my
+		if cy < 0 || cy >= c.height {
+			continue
+		}
+
+		cxStart := dstX
+		mxStart := 0
+		if cxStart < 0 {
+			mxStart = -cxStart
+			cxStart = 0
+		}
+		cxEnd := dstX + maskW
+		if cxEnd > c.width {
+			cxEnd = c.width
+		}
+		spanLen := cxEnd - cxStart
+		if spanLen <= 0 {
+			continue
+		}
+
+		for x := 0; x < spanLen; x++ {
+			cPx := cxStart + x
+			dstOff := (cy*c.width + cPx) * 4
+			mOff := (my*maskW + mxStart + x) * 3
+
+			covR := uint16(maskRGB[mOff])
+			covG := uint16(maskRGB[mOff+1])
+			covB := uint16(maskRGB[mOff+2])
+
+			if covR == 0 && covG == 0 && covB == 0 {
+				continue
+			}
+
+			sr := uint8((uint16(col.R)*covR + 128) / 255)
+			sg := uint8((uint16(col.G)*covG + 128) / 255)
+			sb := uint8((uint16(col.B)*covB + 128) / 255)
+			sa := uint8((uint16(col.A)*((covR+covG+covB)/3) + 128) / 255)
+
+			dr := c.pixels[dstOff]
+			dg := c.pixels[dstOff+1]
+			db := c.pixels[dstOff+2]
+			da := c.pixels[dstOff+3]
+
+			c.pixels[dstOff] = sr + uint8((uint16(dr)*(255-covR)+128)/255)
+			c.pixels[dstOff+1] = sg + uint8((uint16(dg)*(255-covG)+128)/255)
+			c.pixels[dstOff+2] = sb + uint8((uint16(db)*(255-covB)+128)/255)
+			c.pixels[dstOff+3] = sa + uint8((uint16(da)*(255-uint16(sa))+128)/255)
+		}
 	}
 }
 

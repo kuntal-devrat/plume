@@ -10,13 +10,14 @@ type point2D struct {
 }
 
 // TessellatePath converts a vector [geom.Path] into an indexed triangle [Mesh].
-// Non-linear segments are flattened with the given tolerance before triangulation.
+// Multiple contours and holes are recognized and triangulated cleanly.
 func TessellatePath(p geom.Path, tolerance float32, col plume.Color, dst *Mesh) {
 	if dst == nil {
 		return
 	}
 
 	flat := geom.Flatten(p, tolerance)
+	var contours [][]point2D
 	var currentPolygon []point2D
 	idx := 0
 
@@ -24,9 +25,9 @@ func TessellatePath(p geom.Path, tolerance float32, col plume.Color, dst *Mesh) 
 		switch v {
 		case geom.VerbMove:
 			if len(currentPolygon) >= 3 {
-				triangulatePolygon(currentPolygon, col, dst)
+				contours = append(contours, currentPolygon)
+				currentPolygon = nil
 			}
-			currentPolygon = currentPolygon[:0]
 			currentPolygon = append(currentPolygon, point2D{flat.Points[idx], flat.Points[idx+1]})
 			idx += 2
 
@@ -36,37 +37,150 @@ func TessellatePath(p geom.Path, tolerance float32, col plume.Color, dst *Mesh) 
 
 		case geom.VerbClose:
 			if len(currentPolygon) >= 3 {
-				triangulatePolygon(currentPolygon, col, dst)
+				contours = append(contours, currentPolygon)
+				currentPolygon = nil
 			}
-			currentPolygon = currentPolygon[:0]
 		}
 	}
 
 	if len(currentPolygon) >= 3 {
-		triangulatePolygon(currentPolygon, col, dst)
+		contours = append(contours, currentPolygon)
+	}
+
+	if len(contours) == 0 {
+		return
+	}
+
+	// Separate outer contours from hole contours based on signed area
+	var outers [][]point2D
+	var holes [][]point2D
+
+	for _, c := range contours {
+		clean := cleanPolygon(c)
+		if len(clean) < 3 {
+			continue
+		}
+		if polygonArea(clean) >= 0 {
+			outers = append(outers, clean)
+		} else {
+			holes = append(holes, clean)
+		}
+	}
+
+	// If no outer contours were detected (e.g. all clockwise), treat the largest as outer
+	if len(outers) == 0 && len(holes) > 0 {
+		outers = append(outers, holes[0])
+		holes = holes[1:]
+	}
+
+	// Triangulate each outer contour (merging associated holes)
+	for _, outer := range outers {
+		merged := outer
+		for _, hole := range holes {
+			if isHoleInside(hole, merged) {
+				merged = bridgeHole(merged, hole)
+			}
+		}
+		triangulateSimplePolygon(merged, col, dst)
 	}
 }
 
-// triangulatePolygon decomposes a simple polygon (convex or concave) into triangles
-// using the ear-clipping algorithm.
-func triangulatePolygon(pts []point2D, col plume.Color, dst *Mesh) {
+func cleanPolygon(pts []point2D) []point2D {
+	n := len(pts)
+	if n < 3 {
+		return pts
+	}
+	if pts[0].x == pts[n-1].x && pts[0].y == pts[n-1].y {
+		pts = pts[:n-1]
+	}
+	return pts
+}
+
+func isHoleInside(hole, outer []point2D) bool {
+	if len(hole) == 0 || len(outer) == 0 {
+		return false
+	}
+	// Test centroid of hole against outer polygon
+	var cx, cy float32
+	for _, p := range hole {
+		cx += p.x
+		cy += p.y
+	}
+	cx /= float32(len(hole))
+	cy /= float32(len(hole))
+	return pointInPolygon(point2D{cx, cy}, outer)
+}
+
+func pointInPolygon(p point2D, poly []point2D) bool {
+	inside := false
+	n := len(poly)
+	for i := 0; i < n; i++ {
+		j := (i + 1) % n
+		if ((poly[i].y > p.y) != (poly[j].y > p.y)) &&
+			(p.x < (poly[j].x-poly[i].x)*(p.y-poly[i].y)/(poly[j].y-poly[i].y)+poly[i].x) {
+			inside = !inside
+		}
+	}
+	return inside
+}
+
+// bridgeHole connects a hole contour to an outer contour via a pair of bridge edges.
+func bridgeHole(outer, hole []point2D) []point2D {
+	if len(outer) == 0 {
+		return hole
+	}
+	if len(hole) == 0 {
+		return outer
+	}
+
+	// Find hole point with minimum X
+	holeMinIdx := 0
+	for i := 1; i < len(hole); i++ {
+		if hole[i].x < hole[holeMinIdx].x {
+			holeMinIdx = i
+		}
+	}
+	hPt := hole[holeMinIdx]
+
+	// Find closest vertex in outer polygon
+	outerBestIdx := 0
+	var bestDistSq float32 = 1e30
+	for i, oPt := range outer {
+		dx := oPt.x - hPt.x
+		dy := oPt.y - hPt.y
+		dist := dx*dx + dy*dy
+		if dist < bestDistSq {
+			bestDistSq = dist
+			outerBestIdx = i
+		}
+	}
+
+	// Construct joined polygon:
+	// outer[0..outerBestIdx] -> hole[holeMinIdx..end] -> hole[0..holeMinIdx] -> outer[outerBestIdx..end]
+	res := make([]point2D, 0, len(outer)+len(hole)+2)
+	res = append(res, outer[:outerBestIdx+1]...)
+
+	for i := 0; i < len(hole); i++ {
+		idx := (holeMinIdx + i) % len(hole)
+		res = append(res, hole[idx])
+	}
+	// Return to hole start
+	res = append(res, hole[holeMinIdx])
+	// Return to outer bridge point
+	res = append(res, outer[outerBestIdx:]...)
+
+	return res
+}
+
+// triangulateSimplePolygon decomposes a simple counter-clockwise polygon into triangles using ear-clipping.
+func triangulateSimplePolygon(pts []point2D, col plume.Color, dst *Mesh) {
 	n := len(pts)
 	if n < 3 {
 		return
 	}
 
-	// Remove duplicate end point if closed
-	if pts[0].x == pts[n-1].x && pts[0].y == pts[n-1].y {
-		pts = pts[:n-1]
-		n = len(pts)
-		if n < 3 {
-			return
-		}
-	}
-
 	baseVertex := uint32(len(dst.Vertices))
 
-	// Add vertices to mesh
 	for _, p := range pts {
 		dst.Vertices = append(dst.Vertices, Vertex{
 			X: p.x,
@@ -78,7 +192,6 @@ func triangulatePolygon(pts []point2D, col plume.Color, dst *Mesh) {
 		})
 	}
 
-	// Triangulate convex quad directly
 	if n == 3 {
 		dst.Indices = append(dst.Indices, baseVertex, baseVertex+1, baseVertex+2)
 		return
@@ -92,15 +205,13 @@ func triangulatePolygon(pts []point2D, col plume.Color, dst *Mesh) {
 		return
 	}
 
-	// Ear-clipping for general polygons
 	indices := make([]int, n)
 	for i := 0; i < n; i++ {
 		indices[i] = i
 	}
 
-	// Ensure counter-clockwise orientation
-	area := polygonArea(pts)
-	if area < 0 {
+	// Ensure counter-clockwise
+	if polygonArea(pts) < 0 {
 		for i, j := 0, n-1; i < j; i, j = i+1, j-1 {
 			indices[i], indices[j] = indices[j], indices[i]
 		}
@@ -132,7 +243,7 @@ func triangulatePolygon(pts []point2D, col plume.Color, dst *Mesh) {
 		}
 
 		if !earFound {
-			// Fallback: fan triangulation if degenerate/self-intersecting
+			// Fallback fan triangulation if degenerate
 			for i := 1; i < len(indices)-1; i++ {
 				dst.Indices = append(dst.Indices,
 					baseVertex+uint32(indices[0]),
