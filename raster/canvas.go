@@ -57,6 +57,9 @@ func (c *Canvas) Width() int { return c.width }
 // Height returns the canvas height in pixels.
 func (c *Canvas) Height() int { return c.height }
 
+// Pixels returns the raw underlying premultiplied RGBA pixel slice.
+func (c *Canvas) Pixels() []uint8 { return c.pixels }
+
 // ---------------------------------------------------------------------------
 // Clear
 // ---------------------------------------------------------------------------

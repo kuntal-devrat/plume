@@ -1,0 +1,11 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+/wasm
+/demo
+/dashboard
+/oggen

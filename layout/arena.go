@@ -145,3 +145,48 @@ func (t *Tree) Root() NodeID {
 func (t *Tree) NodeCount() int {
 	return len(t.nodes)
 }
+
+// Children returns the immediate child node IDs of parent.
+func (t *Tree) Children(parent NodeID) []NodeID {
+	if int(parent) >= len(t.nodes) {
+		return nil
+	}
+	var res []NodeID
+	c := t.nodes[parent].FirstChild
+	for c != InvalidNode {
+		res = append(res, c)
+		c = t.nodes[c].NextSibling
+	}
+	return res
+}
+
+// HitTest performs spatial lookup to find the deepest child node
+// whose computed bounds contain the point (x, y).
+func (t *Tree) HitTest(x, y float32) NodeID {
+	if t.root == InvalidNode {
+		return InvalidNode
+	}
+	return t.hitTestNode(t.root, x, y)
+}
+
+func (t *Tree) hitTestNode(id NodeID, x, y float32) NodeID {
+	if int(id) >= len(t.nodes) {
+		return InvalidNode
+	}
+	rect := t.nodes[id].Computed
+	if x < rect.X || x > rect.X+rect.Width || y < rect.Y || y > rect.Y+rect.Height {
+		return InvalidNode
+	}
+
+	// Check children in reverse order (topmost first)
+	child := t.nodes[id].LastChild
+	for child != InvalidNode {
+		hit := t.hitTestNode(child, x, y)
+		if hit != InvalidNode {
+			return hit
+		}
+		child = t.nodes[child].PrevSibling
+	}
+
+	return id
+}

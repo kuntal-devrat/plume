@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plume WebAssembly Playground — Pure Go Vector & Layout Engine</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --border: #1f2937;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      padding: 14px 24px;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .main {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 61px);
+    }
+    .controls {
+      width: 360px;
+      background: var(--card-bg);
+      border-right: 1px solid var(--border);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .section-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+    select, input[type="range"] {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 6px;
+      outline: none;
+      font-size: 0.9rem;
+    }
+    select:focus { border-color: var(--accent); }
+    .btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .viewport {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      background: #060911;
+      position: relative;
+    }
+    canvas {
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      max-width: 100%;
+      max-height: 100%;
+    }
+    #bench-output {
+      font-size: 0.8rem;
+      color: #34d399;
+      font-family: monospace;
+      padding: 8px 12px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      border-radius: 6px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span>🪶 Plume</span>
+      <span class="badge">WebAssembly • Zero-Cgo</span>
+    </div>
+    <div>
+      <span style="font-size: 0.85rem; color: var(--muted);">W3C CSS Flexbox & Analytical Vector Engine in Pure Go</span>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="controls">
+      <div class="section-title">Layout Parameters</div>
+
+      <div class="form-group">
+        <label>Flex Direction</label>
+        <select id="dir">
+          <option value="row" selected>Row (horizontal)</option>
+          <option value="column">Column (vertical)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Justify Content</label>
+        <select id="justify">
+          <option value="space-between" selected>Space-Between</option>
+          <option value="center">Center</option>
+          <option value="start">Flex-Start</option>
+          <option value="end">Flex-End</option>
+          <option value="space-around">Space-Around</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Align Items</label>
+        <select id="align">
+          <option value="center" selected>Center</option>
+          <option value="stretch">Stretch</option>
+          <option value="start">Flex-Start</option>
+          <option value="end">Flex-End</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Gap: <span id="gap-val">16px</span></label>
+        <input type="range" id="gap" min="0" max="48" value="16">
+      </div>
+
+      <div class="form-group">
+        <label>Card Count: <span id="cards-val">4</span></label>
+        <input type="range" id="cards" min="2" max="8" value="4">
+      </div>
+
+      <div class="form-group">
+        <label>Corner Radius: <span id="radius-val">12px</span></label>
+        <input type="range" id="radius" min="0" max="32" value="12">
+      </div>
+
+      <div class="form-group">
+        <label>Theme</label>
+        <select id="theme">
+          <option value="dark" selected>Midnight Dark</option>
+          <option value="light">Clean Light</option>
+        </select>
+      </div>
+
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 8px 0;">
+
+      <button class="btn" id="bench-btn">⚡ Run In-Browser Benchmark</button>
+      <div id="bench-output"></div>
+    </div>
+
+    <div class="viewport">
+      <canvas id="plume-canvas" width="800" height="500"></canvas>
+    </div>
+  </div>
+
+  <script src="wasm_exec.js"></script>
+  <script>
+    const go = new Go();
+    const canvas = document.getElementById("plume-canvas");
+
+    WebAssembly.instantiateStreaming(fetch("plume.wasm"), go.importObject).then((result) => {
+      go.run(result.instance);
+      console.log("Plume WASM running");
+      update();
+    });
+
+    function getParams() {
+      return {
+        width: 800,
+        height: 500,
+        direction: document.getElementById("dir").value,
+        justify: document.getElementById("justify").value,
+        align: document.getElementById("align").value,
+        gap: parseFloat(document.getElementById("gap").value),
+        cardCount: parseInt(document.getElementById("cards").value),
+        cornerRadius: parseFloat(document.getElementById("radius").value),
+        theme: document.getElementById("theme").value
+      };
+    }
+
+    function update() {
+      if (typeof plumeRender === "function") {
+        const params = getParams();
+        plumeRender(JSON.stringify(params), canvas);
+      }
+    }
+
+    // Attach listeners
+    ["dir", "justify", "align", "theme"].forEach(id => {
+      document.getElementById(id).addEventListener("change", update);
+    });
+
+    document.getElementById("gap").addEventListener("input", (e) => {
+      document.getElementById("gap-val").textContent = e.target.value + "px";
+      update();
+    });
+    document.getElementById("cards").addEventListener("input", (e) => {
+      document.getElementById("cards-val").textContent = e.target.value;
+      update();
+    });
+    document.getElementById("radius").addEventListener("input", (e) => {
+      document.getElementById("radius-val").textContent = e.target.value + "px";
+      update();
+    });
+
+    document.getElementById("bench-btn").addEventListener("click", () => {
+      const out = document.getElementById("bench-output");
+      out.style.display = "block";
+      out.textContent = "Benchmarking 100 frames...";
+      setTimeout(() => {
+        const res = JSON.parse(plumeBenchmark());
+        out.innerHTML = `<strong>Result:</strong> ${res.fps.toFixed(1)} FPS (${res.msPerFrame.toFixed(2)} ms/frame)`;
+      }, 50);
+    });
+  </script>
+</body>
+</html>
