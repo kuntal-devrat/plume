@@ -301,25 +301,26 @@ func RoundedRect(x, y, w, h, radius float32) Path {
 	}
 
 	var b PathBuilder
+	k := radius * 0.55228475
 
 	// Start at top edge, past top-left arc.
 	b.MoveTo(x+radius, y)
 
 	// Top-right corner.
 	b.LineTo(x+w-radius, y)
-	b.ArcTo(radius, radius, 0, false, true, x+w, y+radius)
+	b.CubicTo(x+w-radius+k, y, x+w, y+radius-k, x+w, y+radius)
 
 	// Bottom-right corner.
 	b.LineTo(x+w, y+h-radius)
-	b.ArcTo(radius, radius, 0, false, true, x+w-radius, y+h)
+	b.CubicTo(x+w, y+h-radius+k, x+w-radius+k, y+h, x+w-radius, y+h)
 
 	// Bottom-left corner.
 	b.LineTo(x+radius, y+h)
-	b.ArcTo(radius, radius, 0, false, true, x, y+h-radius)
+	b.CubicTo(x+radius-k, y+h, x, y+h-radius+k, x, y+h-radius)
 
 	// Top-left corner.
 	b.LineTo(x, y+radius)
-	b.ArcTo(radius, radius, 0, false, true, x+radius, y)
+	b.CubicTo(x, y+radius-k, x+radius-k, y, x+radius, y)
 
 	b.Close()
 	return b.Finish()

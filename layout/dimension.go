@@ -14,6 +14,15 @@ const (
 	// DimensionPercent indicates a percentage of the parent container's
 	// corresponding dimension (0–100 scale).
 	DimensionPercent
+
+	// DimensionFr indicates a fractional flex factor for CSS Grid tracks (e.g. 1fr).
+	DimensionFr
+
+	// DimensionMinContent indicates intrinsic minimum content sizing.
+	DimensionMinContent
+
+	// DimensionMaxContent indicates intrinsic maximum content sizing.
+	DimensionMaxContent
 )
 
 // Dimension represents a CSS dimension value that can be auto, an absolute
@@ -38,4 +47,9 @@ func Px(v float32) Dimension {
 // corresponding dimension.
 func Percent(v float32) Dimension {
 	return Dimension{Kind: DimensionPercent, Value: v}
+}
+
+// Fr returns a fractional unit [Dimension] for CSS Grid track sizing.
+func Fr(v float32) Dimension {
+	return Dimension{Kind: DimensionFr, Value: v}
 }

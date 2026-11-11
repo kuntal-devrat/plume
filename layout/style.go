@@ -11,11 +11,13 @@ const (
 	// DisplayFlex makes the node a flex container.
 	DisplayFlex Display = iota
 	// DisplayBlock makes the node a block-level element (laid out like a
-	// single-item column in Phase 1).
+	// single-item column).
 	DisplayBlock
 	// DisplayNone hides the node — it is skipped during layout and occupies
 	// no space.
 	DisplayNone
+	// DisplayGrid makes the node a CSS Grid container.
+	DisplayGrid
 )
 
 // ---------------------------------------------------------------------------
@@ -144,6 +146,25 @@ const (
 )
 
 // ---------------------------------------------------------------------------
+// GridAutoFlow
+// ---------------------------------------------------------------------------
+
+// GridAutoFlow controls the placement algorithm for grid items without
+// explicit positions.
+type GridAutoFlow uint8
+
+const (
+	// GridAutoFlowRow packs items by filling each row in turn (default).
+	GridAutoFlowRow GridAutoFlow = iota
+	// GridAutoFlowColumn packs items by filling each column in turn.
+	GridAutoFlowColumn
+	// GridAutoFlowRowDense fills holes earlier in the grid if smaller items appear later.
+	GridAutoFlowRowDense
+	// GridAutoFlowColumnDense fills holes column-wise.
+	GridAutoFlowColumnDense
+)
+
+// ---------------------------------------------------------------------------
 // Edges
 // ---------------------------------------------------------------------------
 
@@ -206,8 +227,24 @@ type Style struct {
 	Padding Edges
 
 	// Gap is the spacing between flex items on the main axis.
-	// For simplicity, row-gap and column-gap are treated as equal.
+	// For simplicity, row-gap and column-gap are treated as equal if RowGap/ColumnGap are unset.
 	Gap Dimension
+
+	// Grid Container properties
+	GridTemplateColumns []Dimension
+	GridTemplateRows    []Dimension
+	GridAutoFlow        GridAutoFlow
+	RowGap              Dimension
+	ColumnGap           Dimension
+
+	// Grid Item properties
+	GridColumnStart int16 // 1-based start line (0 = auto)
+	GridColumnEnd   int16 // 1-based end line (0 = auto)
+	GridColumnSpan  uint16 // Span count if specified (default 1)
+	GridRowStart    int16 // 1-based start line (0 = auto)
+	GridRowEnd      int16 // 1-based end line (0 = auto)
+	GridRowSpan     uint16 // Span count if specified (default 1)
+	JustifySelf     AlignSelf
 }
 
 // DefaultStyle returns a [Style] with sensible CSS defaults:

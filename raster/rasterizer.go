@@ -40,6 +40,9 @@ type Rasterizer struct {
 	width  int
 	height int
 	cells  []cell // flat array, indexed as y*width + x
+
+	minY int // Track dirty scanline range for fast reset and sweep
+	maxY int
 }
 
 // NewRasterizer creates a Rasterizer for a canvas of the given pixel
@@ -49,15 +52,27 @@ func NewRasterizer(width, height int) *Rasterizer {
 		width:  width,
 		height: height,
 		cells:  make([]cell, width*height),
+		minY:   height,
+		maxY:   -1,
 	}
 }
 
 // Reset clears all accumulated coverage data so the Rasterizer can be reused
 // for the next path without reallocating its internal buffers.
 func (r *Rasterizer) Reset() {
-	for i := range r.cells {
-		r.cells[i] = cell{}
+	if r.minY <= r.maxY && r.minY >= 0 && r.maxY < r.height {
+		start := r.minY * r.width
+		end := (r.maxY + 1) * r.width
+		for i := start; i < end; i++ {
+			r.cells[i] = cell{}
+		}
+	} else if r.minY <= r.maxY {
+		for i := range r.cells {
+			r.cells[i] = cell{}
+		}
 	}
+	r.minY = r.height
+	r.maxY = -1
 }
 
 // AddPath flattens p (converting any curves to line segments) and adds the
@@ -150,6 +165,13 @@ func (r *Rasterizer) addEdge(x0, y0, x1, y1 float32) {
 		eyEnd = r.height - 1
 	}
 
+	if eyStart < r.minY {
+		r.minY = eyStart
+	}
+	if eyEnd > r.maxY {
+		r.maxY = eyEnd
+	}
+
 	for ey := eyStart; ey <= eyEnd; ey++ {
 		rowTop := float32(ey)
 		rowBot := float32(ey + 1)
@@ -239,10 +261,23 @@ func (r *Rasterizer) addEdge(x0, y0, x1, y1 float32) {
 // dst must be a flat []uint8 buffer of length width×height (one byte per
 // pixel, row-major order). Each byte receives an alpha value in [0, 255]
 // representing the pixel's fractional coverage under the non-zero winding
-// fill rule.
-func (r *Rasterizer) Rasterize(dst []uint8) {
+// fill rule. Returns the dirty scanline range [yStart, yEnd] that was updated.
+func (r *Rasterizer) Rasterize(dst []uint8) (int, int) {
+	if r.minY > r.maxY || r.minY >= r.height || r.maxY < 0 {
+		return 0, -1
+	}
+
 	w := r.width
-	for y := 0; y < r.height; y++ {
+	yStart := r.minY
+	if yStart < 0 {
+		yStart = 0
+	}
+	yEnd := r.maxY
+	if yEnd >= r.height {
+		yEnd = r.height - 1
+	}
+
+	for y := yStart; y <= yEnd; y++ {
 		var cover float32
 		rowOff := y * w
 		for x := 0; x < w; x++ {
@@ -258,4 +293,5 @@ func (r *Rasterizer) Rasterize(dst []uint8) {
 			dst[rowOff+x] = uint8(alpha*255.0 + 0.5)
 		}
 	}
+	return yStart, yEnd
 }

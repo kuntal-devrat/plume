@@ -77,6 +77,11 @@ func (t *Tree) computeNode(id NodeID, parentWidth, parentHeight float32) {
 	}
 
 	// Determine if this is a flex container.
+	if node.Style.Display == DisplayGrid {
+		t.layoutGrid(id, contentWidth, contentHeight, padLeft, padTop, parentWidth, parentHeight)
+		return
+	}
+
 	if node.Style.Display != DisplayFlex {
 		// Block containers: lay out children stacked vertically.
 		t.layoutBlock(id, contentWidth, contentHeight, padLeft, padTop)

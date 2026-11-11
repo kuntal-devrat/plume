@@ -51,6 +51,16 @@ type flexLine struct {
 	lineOffset float32 // cross-axis offset of this line
 }
 
+// gridItemScratch is scratch data kept per grid item during grid layout computation.
+type gridItemScratch struct {
+	node      NodeID
+	colStart  int
+	colSpan   int
+	rowStart  int
+	rowSpan   int
+	definite  bool
+}
+
 // Tree is a flat, arena-allocated layout tree. Nodes are stored in a
 // contiguous slice and referenced by [NodeID] indices. After the tree is
 // built via [NewNode] and [AddChild], the [Compute] method performs the
@@ -60,17 +70,25 @@ type Tree struct {
 	root  NodeID
 
 	// Pre-allocated scratch space — reused across Compute() calls.
-	scratch []flexItem
-	lines   []flexLine
+	scratch   []flexItem
+	lines     []flexLine
+	gridItems []gridItemScratch
+	colSizes  []float32
+	rowSizes  []float32
+	occupied  []bool // grid occupancy map
 }
 
 // NewTree creates an empty layout tree.
 func NewTree() *Tree {
 	return &Tree{
-		nodes:   make([]LayoutNode, 0, 64),
-		root:    InvalidNode,
-		scratch: make([]flexItem, 0, 64),
-		lines:   make([]flexLine, 0, 8),
+		nodes:     make([]LayoutNode, 0, 64),
+		root:      InvalidNode,
+		scratch:   make([]flexItem, 0, 64),
+		lines:     make([]flexLine, 0, 8),
+		gridItems: make([]gridItemScratch, 0, 64),
+		colSizes:  make([]float32, 0, 16),
+		rowSizes:  make([]float32, 0, 16),
+		occupied:  make([]bool, 0, 4096),
 	}
 }
 

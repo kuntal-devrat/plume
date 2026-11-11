@@ -64,12 +64,15 @@ func (c *Canvas) Height() int { return c.height }
 // Clear fills every pixel of the canvas with the given solid color,
 // replacing any existing content.
 func (c *Canvas) Clear(col plume.Color) {
-	r, g, b, a := col.R, col.G, col.B, col.A
-	for i := 0; i < len(c.pixels); i += 4 {
-		c.pixels[i] = r
-		c.pixels[i+1] = g
-		c.pixels[i+2] = b
-		c.pixels[i+3] = a
+	w := c.width * 4
+	for x := 0; x < w; x += 4 {
+		c.pixels[x] = col.R
+		c.pixels[x+1] = col.G
+		c.pixels[x+2] = col.B
+		c.pixels[x+3] = col.A
+	}
+	for y := 1; y < c.height; y++ {
+		copy(c.pixels[y*w:(y+1)*w], c.pixels[:w])
 	}
 }
 
@@ -81,38 +84,32 @@ func (c *Canvas) Clear(col plume.Color) {
 // any verbs (including curves); it is flattened internally by the rasterizer.
 //
 // Pipeline:
-//  1. Reset rasterizer and coverage buffer.
+//  1. Reset rasterizer.
 //  2. Add the path to the rasterizer (which flattens curves).
-//  3. Produce the alpha coverage mask.
-//  4. For every pixel with non-zero coverage, blend the paint color onto the
-//     canvas pixel buffer using source-over compositing.
+//  3. Produce the alpha coverage mask for dirty scanlines.
+//  4. For every dirty scanline, blend the paint color onto the
+//     canvas pixel buffer using vectorized source-over compositing.
 func (c *Canvas) DrawPath(p geom.Path, paint plume.Paint) {
-	w, h := c.width, c.height
+	w := c.width
 
-	// Reset reusable buffers.
+	// Reset reusable rasterizer.
 	c.rasterizer.Reset()
-	for i := range c.coverage {
-		c.coverage[i] = 0
+
+	// Rasterize and get dirty scanline range.
+	c.rasterizer.AddPath(p)
+	yStart, yEnd := c.rasterizer.Rasterize(c.coverage)
+	if yStart > yEnd {
+		return
 	}
 
-	// Rasterize.
-	c.rasterizer.AddPath(p)
-	c.rasterizer.Rasterize(c.coverage)
-
-	// Resolve paint.
-	ps := NewSolidPaint(paint.Color)
-
-	// Composite.
-	for y := 0; y < h; y++ {
+	// Composite only the dirty scanlines
+	col := paint.Color
+	for y := yStart; y <= yEnd; y++ {
 		rowOff := y * w
+		blendSolidSpan(c.pixels[rowOff*4:(rowOff+w)*4], c.coverage[rowOff:rowOff+w], col.R, col.G, col.B, col.A)
+		// Clean up dirty row of coverage buffer for next draw
 		for x := 0; x < w; x++ {
-			cov := c.coverage[rowOff+x]
-			if cov == 0 {
-				continue
-			}
-			col := ps.ColorAt(x, y)
-			pixOff := (rowOff + x) * 4
-			BlendPixel(c.pixels, pixOff, col.R, col.G, col.B, col.A, cov)
+			c.coverage[rowOff+x] = 0
 		}
 	}
 }
@@ -159,6 +156,45 @@ func (c *Canvas) DrawText(text string, x, y float32, style plume.TextStyle) {
 	// Position rectangle so that (x, y) is the top-left of the text box.
 	p := geom.Rect(x, y, estWidth, estHeight)
 	c.DrawPath(p, plume.Fill(style.Color))
+}
+
+// ---------------------------------------------------------------------------
+// DrawMask
+// ---------------------------------------------------------------------------
+
+// DrawMask composites a grayscale alpha coverage mask onto the canvas
+// at integer pixel coordinates (dstX, dstY) using vectorized alpha blending.
+func (c *Canvas) DrawMask(mask []uint8, dstX, dstY, maskW, maskH int, col plume.Color) {
+	if maskW <= 0 || maskH <= 0 || len(mask) < maskW*maskH {
+		return
+	}
+
+	for my := 0; my < maskH; my++ {
+		cy := dstY + my
+		if cy < 0 || cy >= c.height {
+			continue
+		}
+
+		cxStart := dstX
+		mxStart := 0
+		if cxStart < 0 {
+			mxStart = -cxStart
+			cxStart = 0
+		}
+		cxEnd := dstX + maskW
+		if cxEnd > c.width {
+			cxEnd = c.width
+		}
+		spanLen := cxEnd - cxStart
+		if spanLen <= 0 {
+			continue
+		}
+
+		dstOff := (cy*c.width + cxStart) * 4
+		maskOff := my*maskW + mxStart
+
+		blendSolidSpan(c.pixels[dstOff:dstOff+spanLen*4], mask[maskOff:maskOff+spanLen], col.R, col.G, col.B, col.A)
+	}
 }
 
 // ---------------------------------------------------------------------------
