@@ -849,7 +849,7 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		c.Computed.Height = itemH
 
 		// Recurse for nested containers
-		if (c.Style.Display == DisplayFlex || c.Style.Display == DisplayGrid) && c.FirstChild != InvalidNode {
+		if c.FirstChild != InvalidNode {
 			t.computeNode(it.node, itemW, itemH)
 			c.Computed.X = itemX
 			c.Computed.Y = itemY
@@ -1218,34 +1218,44 @@ func (t *Tree) resolveTracks(templates, autoTracks []Dimension, explicitOffset, 
 				span = it.rowSpan
 				start = it.rowStart
 			}
-			if span == 1 && start == i && tr.maxFn.Kind != DimensionFr {
+			if span == 1 && start == i {
 				minC := t.computeGridItemMinContent(&it, isCol, containerSize)
 				maxC := t.computeGridItemMaxContent(&it, isCol, containerSize)
 
-				if isIntrinsic(tr.minFn.Kind) {
-					if tr.minFn.Kind == DimensionMaxContent {
-						if maxC > tr.baseSize {
-							tr.baseSize = maxC
-						}
-					} else {
+				if tr.maxFn.Kind == DimensionFr {
+					if isIntrinsic(tr.minFn.Kind) || tr.minFn.Kind == DimensionAuto {
 						if minC > tr.baseSize {
 							tr.baseSize = minC
 						}
+					} else if tr.minFn.Kind == DimensionPx && tr.minFn.Value > tr.baseSize {
+						tr.baseSize = tr.minFn.Value
 					}
-				}
+				} else {
+					if isIntrinsic(tr.minFn.Kind) {
+						if tr.minFn.Kind == DimensionMaxContent {
+							if maxC > tr.baseSize {
+								tr.baseSize = maxC
+							}
+						} else {
+							if minC > tr.baseSize {
+								tr.baseSize = minC
+							}
+						}
+					}
 
-				if isIntrinsic(tr.maxFn.Kind) {
-					if tr.maxFn.Kind == DimensionMinContent {
-						if minC > tr.growthLimit {
-							tr.growthLimit = minC
-						}
-					} else {
-						limit := maxC
-						if tr.fitLimit > 0 && limit > tr.fitLimit {
-							limit = tr.fitLimit
-						}
-						if limit > tr.growthLimit {
-							tr.growthLimit = limit
+					if isIntrinsic(tr.maxFn.Kind) {
+						if tr.maxFn.Kind == DimensionMinContent {
+							if minC > tr.growthLimit {
+								tr.growthLimit = minC
+							}
+						} else {
+							limit := maxC
+							if tr.fitLimit > 0 && limit > tr.fitLimit {
+								limit = tr.fitLimit
+							}
+							if limit > tr.growthLimit {
+								tr.growthLimit = limit
+							}
 						}
 					}
 				}
@@ -1460,40 +1470,101 @@ func (t *Tree) resolveTracks(templates, autoTracks []Dimension, explicitOffset, 
 		usedSpace += dst[i]
 	}
 
-	// Pass 3: Free space distribution
+	// Pass 3: Free space distribution (W3C CSS Grid §11.7.1)
 	targetSpace := containerSize
 	if isIndefinite && minSize > 0 {
 		targetSpace = minSize
 	}
 
-	if targetSpace > 0 {
-		remainingSpace := targetSpace - totalGaps - usedSpace
-		if remainingSpace > 0 {
-			var totalFr float32
-			var autoCount int
-			for i := 0; i < totalTracks; i++ {
-				if tracks[i].maxFn.Kind == DimensionFr {
-					totalFr += tracks[i].maxFn.Value
-				} else if !isIndefinite && (tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto) {
-					autoCount++
+	var totalFr float32
+	var autoCount int
+	for i := 0; i < totalTracks; i++ {
+		if tracks[i].maxFn.Kind == DimensionFr {
+			totalFr += tracks[i].maxFn.Value
+		} else if !isIndefinite && (tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto) {
+			autoCount++
+		}
+	}
+
+	if isIndefinite && targetSpace <= 0 && totalFr > 0 {
+		var maxFrUnit float32
+		for i := 0; i < totalTracks; i++ {
+			if tracks[i].maxFn.Kind == DimensionFr && tracks[i].maxFn.Value > 0 {
+				unit := tracks[i].baseSize / tracks[i].maxFn.Value
+				if unit > maxFrUnit {
+					maxFrUnit = unit
 				}
 			}
+		}
+		if maxFrUnit > 0 {
+			for i := 0; i < totalTracks; i++ {
+				if tracks[i].maxFn.Kind == DimensionFr {
+					dst[i] = tracks[i].maxFn.Value * maxFrUnit
+				}
+			}
+		}
+	} else if targetSpace > 0 {
+		if totalFr > 0 {
+			var nonFlexBaseSum float32
+			for i := 0; i < totalTracks; i++ {
+				if tracks[i].maxFn.Kind != DimensionFr {
+					nonFlexBaseSum += tracks[i].baseSize
+				}
+			}
+			leftoverSpace := targetSpace - totalGaps - nonFlexBaseSum
+			if leftoverSpace < 0 {
+				leftoverSpace = 0
+			}
 
-			if totalFr > 0 {
-				frUnit := remainingSpace / totalFr
+			frozen := make([]bool, totalTracks)
+			for pass := 0; pass < totalTracks; pass++ {
+				var unfrozenFlexSum float32
+				unfrozenCount := 0
 				for i := 0; i < totalTracks; i++ {
-					if tracks[i].maxFn.Kind == DimensionFr {
-						dst[i] = tracks[i].baseSize + tracks[i].maxFn.Value*frUnit
+					if tracks[i].maxFn.Kind == DimensionFr && !frozen[i] {
+						unfrozenFlexSum += tracks[i].maxFn.Value
+						unfrozenCount++
 					}
 				}
-			} else if autoCount > 0 && shouldStretch && !isIndefinite {
+				if unfrozenCount == 0 {
+					break
+				}
+				flexFactorSum := unfrozenFlexSum
+				if flexFactorSum < 1.0 {
+					flexFactorSum = 1.0
+				}
+				hypoFr := leftoverSpace / flexFactorSum
+				violationFound := false
+				for i := 0; i < totalTracks; i++ {
+					if tracks[i].maxFn.Kind == DimensionFr && !frozen[i] {
+						share := hypoFr * tracks[i].maxFn.Value
+						if share < tracks[i].baseSize {
+							frozen[i] = true
+							dst[i] = tracks[i].baseSize
+							leftoverSpace -= tracks[i].baseSize
+							violationFound = true
+						}
+					}
+				}
+				if !violationFound {
+					for i := 0; i < totalTracks; i++ {
+						if tracks[i].maxFn.Kind == DimensionFr && !frozen[i] {
+							dst[i] = hypoFr * tracks[i].maxFn.Value
+						}
+					}
+					break
+				}
+			}
+		} else {
+			remainingSpace := targetSpace - totalGaps - usedSpace
+			if remainingSpace > 0 && autoCount > 0 && shouldStretch && !isIndefinite {
 				share := remainingSpace / float32(autoCount)
 				for i := 0; i < totalTracks; i++ {
 					if tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto {
 						dst[i] += share
 					}
 				}
-			} else if autoCount > 0 && usedSpace == 0 && !isIndefinite {
+			} else if remainingSpace > 0 && autoCount > 0 && usedSpace == 0 && !isIndefinite {
 				share := remainingSpace / float32(autoCount)
 				for i := 0; i < totalTracks; i++ {
 					if tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto {
