@@ -237,6 +237,14 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		}
 	}
 
+	// Direction
+	dirAttr := getAttr("direction")
+	if dirAttr == "rtl" {
+		s.Direction = DirectionRTL
+	} else if dirAttr == "ltr" {
+		s.Direction = DirectionLTR
+	}
+
 	// Position
 	pos := getAttr("position")
 	switch pos {
@@ -374,6 +382,10 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		s.AlignContent = AlignContentSpaceAround
 	case "space-evenly":
 		s.AlignContent = AlignContentSpaceEvenly
+	default:
+		if s.Display == DisplayGrid {
+			s.AlignContent = AlignContentStretch
+		}
 	}
 
 	// Overflow

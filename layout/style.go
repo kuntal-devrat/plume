@@ -36,6 +36,20 @@ const (
 )
 
 // ---------------------------------------------------------------------------
+// Direction
+// ---------------------------------------------------------------------------
+
+// Direction specifies the inline base direction / writing direction.
+type Direction uint8
+
+const (
+	// DirectionLTR specifies left-to-right inline direction.
+	DirectionLTR Direction = iota
+	// DirectionRTL specifies right-to-left inline direction.
+	DirectionRTL
+)
+
+// ---------------------------------------------------------------------------
 // FlexDirection
 // ---------------------------------------------------------------------------
 
@@ -265,6 +279,7 @@ type Style struct {
 	OverflowY Overflow
 
 	// Container properties
+	Direction      Direction
 	Display        Display
 	FlexDirection  FlexDirection
 	FlexWrap       FlexWrap

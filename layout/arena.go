@@ -47,6 +47,7 @@ type LayoutNode struct {
 type flexItem struct {
 	node             NodeID
 	flexBasis        float32
+	marginMain       float32
 	hypotheticalMain float32
 	flexGrow         float32
 	flexShrink       float32

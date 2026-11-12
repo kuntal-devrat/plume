@@ -628,16 +628,6 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	for _, it := range t.gridItems {
 		c := &t.nodes[it.node]
 
-		// Cell left X & width
-		var cellX float32 = padLeft + gridJustifyOffsetX
-		for i := 0; i < it.colStart; i++ {
-			if i < len(t.colSizes) {
-				if !node.Style.AutoFitCols || t.colSizes[i] > 0 {
-					cellX += t.colSizes[i] + colGap
-				}
-			}
-		}
-
 		var cellW float32
 		for i := it.colStart; i < it.colStart+it.colSpan; i++ {
 			if i < len(t.colSizes) {
@@ -646,6 +636,29 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		}
 		if it.colSpan > 1 {
 			cellW += float32(it.colSpan-1) * colGap
+		}
+
+		// Cell left X & width
+		var cellX float32
+		if node.Style.Direction == DirectionRTL {
+			var offsetFromRight float32
+			for i := 0; i < it.colStart; i++ {
+				if i < len(t.colSizes) {
+					if !node.Style.AutoFitCols || t.colSizes[i] > 0 {
+						offsetFromRight += t.colSizes[i] + colGap
+					}
+				}
+			}
+			cellX = padLeft + contentWidth - gridJustifyOffsetX - offsetFromRight - cellW
+		} else {
+			cellX = padLeft + gridJustifyOffsetX
+			for i := 0; i < it.colStart; i++ {
+				if i < len(t.colSizes) {
+					if !node.Style.AutoFitCols || t.colSizes[i] > 0 {
+						cellX += t.colSizes[i] + colGap
+					}
+				}
+			}
 		}
 
 		// Cell top Y & height
@@ -1462,11 +1475,7 @@ func (t *Tree) resolveTracks(templates, autoTracks []Dimension, explicitOffset, 
 				if tracks[i].maxFn.Kind == DimensionFr {
 					totalFr += tracks[i].maxFn.Value
 				} else if !isIndefinite && (tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto) {
-					if dst[i] == 0 {
-						totalFr += 1.0
-					} else {
-						autoCount++
-					}
+					autoCount++
 				}
 			}
 
@@ -1475,11 +1484,16 @@ func (t *Tree) resolveTracks(templates, autoTracks []Dimension, explicitOffset, 
 				for i := 0; i < totalTracks; i++ {
 					if tracks[i].maxFn.Kind == DimensionFr {
 						dst[i] = tracks[i].baseSize + tracks[i].maxFn.Value*frUnit
-					} else if !isIndefinite && (tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto) && dst[i] == 0 {
-						dst[i] = 1.0 * frUnit
 					}
 				}
 			} else if autoCount > 0 && shouldStretch && !isIndefinite {
+				share := remainingSpace / float32(autoCount)
+				for i := 0; i < totalTracks; i++ {
+					if tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto {
+						dst[i] += share
+					}
+				}
+			} else if autoCount > 0 && usedSpace == 0 && !isIndefinite {
 				share := remainingSpace / float32(autoCount)
 				for i := 0; i < totalTracks; i++ {
 					if tracks[i].maxFn.Kind == DimensionAuto || tracks[i].minFn.Kind == DimensionAuto {
@@ -1518,22 +1532,40 @@ func (t *Tree) getSpannedColWidth(it *gridItemScratch) float32 {
 func (t *Tree) computeGridItemMinContent(it *gridItemScratch, isCol bool, containerSize float32) float32 {
 	c := &t.nodes[it.node]
 	if isCol {
+		var res float32
 		if c.Style.Width.Kind == DimensionPx {
-			return c.Style.Width.Value
+			res = c.Style.Width.Value
+			if c.Style.BoxSizing == BoxSizingContentBox {
+				res += t.resolveDimensionOrZero(c.Style.Padding.Left, containerSize) + t.resolveDimensionOrZero(c.Style.Padding.Right, containerSize)
+			}
 		} else if c.Style.Width.Kind == DimensionPercent {
-			return t.computeMinContentSize(it.node, true, 0, 0)
+			res = t.computeMinContentSize(it.node, true, 0, 0)
+		} else {
+			padHoriz := t.resolveDimensionOrZero(c.Style.Padding.Left, containerSize) + t.resolveDimensionOrZero(c.Style.Padding.Right, containerSize)
+			if int(it.node) < len(t.measureFuncs) && t.measureFuncs[it.node] != nil {
+				fn := t.measureFuncs[it.node]
+				mw, _ := fn(t, it.node, 0, MeasureAtMost, 0, MeasureUndefined)
+				res = mw + padHoriz
+			} else {
+				res = t.computeMinContentSize(it.node, true, containerSize, 0)
+			}
 		}
-		padHoriz := t.resolveDimensionOrZero(c.Style.Padding.Left, containerSize) + t.resolveDimensionOrZero(c.Style.Padding.Right, containerSize)
-		if int(it.node) < len(t.measureFuncs) && t.measureFuncs[it.node] != nil {
-			fn := t.measureFuncs[it.node]
-			mw, _ := fn(t, it.node, 0, MeasureAtMost, 0, MeasureUndefined)
-			return mw + padHoriz
+		var margin float32
+		if !isAutoMargin(c.Style.Margin.Left) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Left, containerSize)
 		}
-		return t.computeMinContentSize(it.node, true, containerSize, 0)
+		if !isAutoMargin(c.Style.Margin.Right) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Right, containerSize)
+		}
+		return res + margin
 	} else {
 		var res float32
 		if c.Style.Height.Kind == DimensionPx {
 			res = c.Style.Height.Value
+			if c.Style.BoxSizing == BoxSizingContentBox {
+				colW := t.getSpannedColWidth(it)
+				res += t.resolveDimensionOrZero(c.Style.Padding.Top, colW) + t.resolveDimensionOrZero(c.Style.Padding.Bottom, colW)
+			}
 		} else if c.Style.Height.Kind == DimensionPercent {
 			res = t.computeMinContentSize(it.node, false, 0, 0)
 		} else {
@@ -1552,31 +1584,65 @@ func (t *Tree) computeGridItemMinContent(it *gridItemScratch, isCol bool, contai
 				res = t.computeMinContentSize(it.node, false, colW, containerSize)
 			}
 		}
-		return res + it.baselineShim
+		var margin float32
+		ref := containerSize
+		if c.Style.Margin.Top.Kind == DimensionPercent {
+			ref = t.getSpannedColWidth(it)
+		}
+		if !isAutoMargin(c.Style.Margin.Top) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Top, ref)
+		}
+		ref = containerSize
+		if c.Style.Margin.Bottom.Kind == DimensionPercent {
+			ref = t.getSpannedColWidth(it)
+		}
+		if !isAutoMargin(c.Style.Margin.Bottom) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Bottom, ref)
+		}
+		return res + it.baselineShim + margin
 	}
 }
 
 func (t *Tree) computeGridItemMaxContent(it *gridItemScratch, isCol bool, containerSize float32) float32 {
 	c := &t.nodes[it.node]
 	if isCol {
+		var res float32
 		if c.Style.Width.Kind == DimensionPx {
-			return c.Style.Width.Value
+			res = c.Style.Width.Value
+			if c.Style.BoxSizing == BoxSizingContentBox {
+				res += t.resolveDimensionOrZero(c.Style.Padding.Left, containerSize) + t.resolveDimensionOrZero(c.Style.Padding.Right, containerSize)
+			}
 		} else if c.Style.Width.Kind == DimensionPercent {
-			return 0
+			res = 0
+		} else {
+			padHoriz := t.resolveDimensionOrZero(c.Style.Padding.Left, containerSize) + t.resolveDimensionOrZero(c.Style.Padding.Right, containerSize)
+			if int(it.node) < len(t.measureFuncs) && t.measureFuncs[it.node] != nil {
+				fn := t.measureFuncs[it.node]
+				mw, _ := fn(t, it.node, 0, MeasureUndefined, 0, MeasureUndefined)
+				res = mw + padHoriz
+			} else if c.Style.MaxWidth.Kind != DimensionAuto {
+				res = t.resolveDimensionOrZero(c.Style.MaxWidth, containerSize)
+			} else {
+				res = t.computeMinContentSize(it.node, true, containerSize, 0)
+			}
 		}
-		padHoriz := t.resolveDimensionOrZero(c.Style.Padding.Left, containerSize) + t.resolveDimensionOrZero(c.Style.Padding.Right, containerSize)
-		if int(it.node) < len(t.measureFuncs) && t.measureFuncs[it.node] != nil {
-			fn := t.measureFuncs[it.node]
-			mw, _ := fn(t, it.node, 0, MeasureUndefined, 0, MeasureUndefined)
-			return mw + padHoriz
+		var margin float32
+		if !isAutoMargin(c.Style.Margin.Left) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Left, containerSize)
 		}
-		if c.Style.MaxWidth.Kind != DimensionAuto {
-			return t.resolveDimensionOrZero(c.Style.MaxWidth, containerSize)
+		if !isAutoMargin(c.Style.Margin.Right) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Right, containerSize)
 		}
-		return t.computeMinContentSize(it.node, true, containerSize, 0)
+		return res + margin
 	} else {
 		var res float32
 		if c.Style.Height.Kind == DimensionPx {
+			res = c.Style.Height.Value
+			if c.Style.BoxSizing == BoxSizingContentBox {
+				colW := t.getSpannedColWidth(it)
+				res += t.resolveDimensionOrZero(c.Style.Padding.Top, colW) + t.resolveDimensionOrZero(c.Style.Padding.Bottom, colW)
+			}
+		} else if c.Style.Height.Kind == DimensionPercent {
 			res = c.Style.Height.Value
 		} else if c.Style.Height.Kind == DimensionPercent {
 			res = 0
@@ -1598,6 +1664,21 @@ func (t *Tree) computeGridItemMaxContent(it *gridItemScratch, isCol bool, contai
 				res = t.computeMinContentSize(it.node, false, colW, containerSize)
 			}
 		}
-		return res + it.baselineShim
+		var margin float32
+		ref := containerSize
+		if c.Style.Margin.Top.Kind == DimensionPercent {
+			ref = t.getSpannedColWidth(it)
+		}
+		if !isAutoMargin(c.Style.Margin.Top) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Top, ref)
+		}
+		ref = containerSize
+		if c.Style.Margin.Bottom.Kind == DimensionPercent {
+			ref = t.getSpannedColWidth(it)
+		}
+		if !isAutoMargin(c.Style.Margin.Bottom) {
+			margin += t.resolveDimensionOrZero(c.Style.Margin.Bottom, ref)
+		}
+		return res + it.baselineShim + margin
 	}
 }
