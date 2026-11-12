@@ -294,12 +294,67 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		node.Computed.Height = sumH + padTop + t.resolveDimensionOrZero(node.Style.Padding.Bottom, parentHeight)
 	}
 
+	// 5b. Align-Content & Justify-Content for the Grid Tracks (CSS Grid §10.5)
+	var totalColWidth, totalRowHeight float32
+	for _, w := range t.colSizes {
+		totalColWidth += w
+	}
+	if totalCols > 1 {
+		totalColWidth += float32(totalCols-1) * colGap
+	}
+	for _, h := range t.rowSizes {
+		totalRowHeight += h
+	}
+	if totalRows > 1 {
+		totalRowHeight += float32(totalRows-1) * rowGap
+	}
+
+	var gridAlignOffsetY, gridJustifyOffsetX float32
+	if contentHeight > totalRowHeight {
+		freeY := contentHeight - totalRowHeight
+		switch node.Style.AlignContent {
+		case AlignContentCenter:
+			gridAlignOffsetY = freeY * 0.5
+		case AlignContentFlexEnd:
+			gridAlignOffsetY = freeY
+		case AlignContentSpaceBetween:
+			if totalRows > 1 {
+				rowGap += freeY / float32(totalRows-1)
+			}
+		case AlignContentSpaceAround:
+			if totalRows > 0 {
+				space := freeY / float32(totalRows)
+				gridAlignOffsetY = space * 0.5
+				rowGap += space
+			}
+		}
+	}
+	if contentWidth > totalColWidth {
+		freeX := contentWidth - totalColWidth
+		switch node.Style.JustifyContent {
+		case JustifyCenter:
+			gridJustifyOffsetX = freeX * 0.5
+		case JustifyFlexEnd:
+			gridJustifyOffsetX = freeX
+		case JustifySpaceBetween:
+			if totalCols > 1 {
+				colGap += freeX / float32(totalCols-1)
+			}
+		case JustifySpaceAround:
+			if totalCols > 0 {
+				space := freeX / float32(totalCols)
+				gridJustifyOffsetX = space * 0.5
+				colGap += space
+			}
+		}
+	}
+
 	// 6. Item Positioning & Sizing
 	for _, it := range t.gridItems {
 		c := &t.nodes[it.node]
 
 		// Cell left X & width
-		var cellX float32 = padLeft
+		var cellX float32 = padLeft + gridJustifyOffsetX
 		for i := 0; i < it.colStart; i++ {
 			if i < len(t.colSizes) {
 				cellX += t.colSizes[i] + colGap
@@ -317,7 +372,7 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		}
 
 		// Cell top Y & height
-		var cellY float32 = padTop
+		var cellY float32 = padTop + gridAlignOffsetY
 		for i := 0; i < it.rowStart; i++ {
 			if i < len(t.rowSizes) {
 				cellY += t.rowSizes[i] + rowGap

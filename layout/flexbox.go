@@ -396,7 +396,7 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		line.mainUsed = totalUsed
 
 		remaining := mainSize - totalUsed
-		if remaining < 0 || isUnconstrainedAuto {
+		if isUnconstrainedAuto {
 			remaining = 0
 		}
 
@@ -429,28 +429,39 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 
 		var offset, spaceBetween, spaceBefore float32
 
-		switch node.Style.JustifyContent {
-		case JustifyFlexStart:
-			offset = 0
-		case JustifyFlexEnd:
-			offset = remaining
-		case JustifyCenter:
-			offset = remaining / 2
-		case JustifySpaceBetween:
-			if line.count > 1 {
-				spaceBetween = remaining / float32(line.count-1)
+		if remaining < 0 {
+			switch node.Style.JustifyContent {
+			case JustifyFlexEnd:
+				offset = remaining
+			case JustifyCenter, JustifySpaceAround, JustifySpaceEvenly:
+				offset = remaining / 2
+			default:
+				offset = 0
 			}
-		case JustifySpaceAround:
-			if line.count > 0 {
-				spaceBefore = remaining / float32(line.count) / 2
-				spaceBetween = remaining / float32(line.count)
-				offset = spaceBefore
-			}
-		case JustifySpaceEvenly:
-			if line.count > 0 {
-				spaceBefore = remaining / float32(line.count+1)
-				spaceBetween = spaceBefore
-				offset = spaceBefore
+		} else {
+			switch node.Style.JustifyContent {
+			case JustifyFlexStart:
+				offset = 0
+			case JustifyFlexEnd:
+				offset = remaining
+			case JustifyCenter:
+				offset = remaining / 2
+			case JustifySpaceBetween:
+				if line.count > 1 {
+					spaceBetween = remaining / float32(line.count-1)
+				}
+			case JustifySpaceAround:
+				if line.count > 0 {
+					spaceBefore = remaining / float32(line.count) / 2
+					spaceBetween = remaining / float32(line.count)
+					offset = spaceBefore
+				}
+			case JustifySpaceEvenly:
+				if line.count > 0 {
+					spaceBefore = remaining / float32(line.count+1)
+					spaceBetween = spaceBefore
+					offset = spaceBefore
+				}
 			}
 		}
 
@@ -650,6 +661,9 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			}
 
 			availCross := line.crossSize - marginCrossStart - marginCrossEnd
+			if availCross < 0 {
+				availCross = 0
+			}
 
 			if hasAutoCrossStart || hasAutoCrossEnd {
 				// W3C §8.1: Auto cross margins absorb free cross space and override alignment
@@ -759,6 +773,13 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				y = padTop + it.mainOffset
 				w = it.crossSize
 				h = it.targetMain
+			}
+
+			if w < 0 {
+				w = 0
+			}
+			if h < 0 {
+				h = 0
 			}
 
 			// Handle reverse: mirror main-axis positions.

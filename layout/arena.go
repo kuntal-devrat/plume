@@ -172,6 +172,29 @@ func (t *Tree) ComputedRect(id NodeID) Rect {
 	return t.nodes[id].Computed
 }
 
+// SetStyle updates the style configuration of an existing node.
+func (t *Tree) SetStyle(id NodeID, style Style) {
+	if int(id) < len(t.nodes) {
+		t.nodes[id].Style = style
+	}
+}
+
+// Style returns a pointer to the style of the given node, or nil if id is invalid.
+func (t *Tree) Style(id NodeID) *Style {
+	if int(id) < len(t.nodes) {
+		return &t.nodes[id].Style
+	}
+	return nil
+}
+
+// Clear resets the tree, removing all nodes for reuse.
+func (t *Tree) Clear() {
+	t.nodes = t.nodes[:0]
+	t.measureFuncs = t.measureFuncs[:0]
+	t.baselines = t.baselines[:0]
+	t.root = InvalidNode
+}
+
 // Root returns the [NodeID] of the tree's root node. If no nodes have been
 // added, it returns [InvalidNode].
 func (t *Tree) Root() NodeID {
