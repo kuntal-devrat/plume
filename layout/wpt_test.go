@@ -61,7 +61,16 @@ func parseWPTDimension(val string) Dimension {
 	if strings.HasPrefix(val, "fit-content(") && strings.HasSuffix(val, ")") {
 		inner := strings.TrimSuffix(strings.TrimPrefix(val, "fit-content("), ")")
 		d := parseWPTDimension(inner)
-		return Dimension{Kind: DimensionFitContent, Value: d.Value}
+		return FitContent(d)
+	}
+	if strings.HasPrefix(val, "minmax(") && strings.HasSuffix(val, ")") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(val, "minmax("), ")")
+		parts := strings.Split(inner, ",")
+		if len(parts) == 2 {
+			d1 := parseWPTDimension(strings.TrimSpace(parts[0]))
+			d2 := parseWPTDimension(strings.TrimSpace(parts[1]))
+			return MinMax(d1, d2)
+		}
 	}
 	if strings.HasSuffix(val, "px") {
 		num := strings.TrimSuffix(val, "px")
@@ -90,7 +99,28 @@ func parseWPTTrackList(val string) []Dimension {
 	if val == "" || val == "none" {
 		return nil
 	}
-	parts := strings.Fields(val)
+	var parts []string
+	var cur strings.Builder
+	depth := 0
+	for _, r := range val {
+		if r == '(' {
+			depth++
+			cur.WriteRune(r)
+		} else if r == ')' {
+			depth--
+			cur.WriteRune(r)
+		} else if (r == ' ' || r == '\t' || r == '\n') && depth == 0 {
+			if cur.Len() > 0 {
+				parts = append(parts, cur.String())
+				cur.Reset()
+			}
+		} else {
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
 	var res []Dimension
 	for _, p := range parts {
 		res = append(res, parseWPTDimension(p))
@@ -159,10 +189,14 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 	// Justify Content
 	jc := getAttr("justify-content")
 	switch jc {
-	case "flex-start", "start":
+	case "flex-start":
 		s.JustifyContent = JustifyFlexStart
-	case "flex-end", "end":
+	case "start":
+		s.JustifyContent = JustifyStart
+	case "flex-end":
 		s.JustifyContent = JustifyFlexEnd
+	case "end":
+		s.JustifyContent = JustifyEnd
 	case "center":
 		s.JustifyContent = JustifyCenter
 	case "space-between":
@@ -222,6 +256,41 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		s.AlignContent = AlignContentSpaceAround
 	case "space-evenly":
 		s.AlignContent = AlignContentSpaceEvenly
+	}
+
+	// Overflow
+	if v := getAttr("overflow-x"); v != "" {
+		switch v {
+		case "hidden":
+			s.OverflowX = OverflowHidden
+		case "scroll":
+			s.OverflowX = OverflowScroll
+		case "auto":
+			s.OverflowX = OverflowAuto
+		}
+	}
+	if v := getAttr("overflow-y"); v != "" {
+		switch v {
+		case "hidden":
+			s.OverflowY = OverflowHidden
+		case "scroll":
+			s.OverflowY = OverflowScroll
+		case "auto":
+			s.OverflowY = OverflowAuto
+		}
+	}
+	if v := getAttr("overflow"); v != "" {
+		switch v {
+		case "hidden":
+			s.OverflowX = OverflowHidden
+			s.OverflowY = OverflowHidden
+		case "scroll":
+			s.OverflowX = OverflowScroll
+			s.OverflowY = OverflowScroll
+		case "auto":
+			s.OverflowX = OverflowAuto
+			s.OverflowY = OverflowAuto
+		}
 	}
 
 	// Flex factors

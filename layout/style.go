@@ -94,6 +94,10 @@ const (
 	JustifySpaceEvenly
 	// JustifyStretch stretches auto items along the main axis.
 	JustifyStretch
+	// JustifyStart packs items toward the start of the writing mode / physical start.
+	JustifyStart
+	// JustifyEnd packs items toward the end of the writing mode / physical end.
+	JustifyEnd
 )
 
 // ---------------------------------------------------------------------------
@@ -215,6 +219,20 @@ func EdgesPx(top, right, bottom, left float32) Edges {
 }
 
 // ---------------------------------------------------------------------------
+// Overflow
+// ---------------------------------------------------------------------------
+
+// Overflow describes how content overflowing the box is handled.
+type Overflow uint8
+
+const (
+	OverflowVisible Overflow = iota
+	OverflowHidden
+	OverflowScroll
+	OverflowAuto
+)
+
+// ---------------------------------------------------------------------------
 // Style
 // ---------------------------------------------------------------------------
 
@@ -224,6 +242,10 @@ type Style struct {
 	// Positioning
 	Position PositionType
 	Inset    Edges // Top, Right, Bottom, Left offsets
+
+	// Overflow
+	OverflowX Overflow
+	OverflowY Overflow
 
 	// Container properties
 	Display        Display

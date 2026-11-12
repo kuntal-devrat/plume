@@ -91,6 +91,7 @@ type Tree struct {
 	gridItems []gridItemScratch
 	colSizes  []float32
 	rowSizes  []float32
+	curColGap float32
 	occupied  []bool // grid occupancy map
 
 	measureFuncs []MeasureFunc

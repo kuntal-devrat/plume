@@ -29,6 +29,9 @@ const (
 
 	// DimensionContent indicates content-based sizing (e.g. flex-basis: content).
 	DimensionContent
+
+	// DimensionMinMax indicates minmax(min, max) track sizing.
+	DimensionMinMax
 )
 
 // Dimension represents a CSS dimension value that can be auto, an absolute
@@ -36,6 +39,8 @@ const (
 type Dimension struct {
 	Kind  DimensionKind
 	Value float32
+	Min   *Dimension
+	Max   *Dimension
 }
 
 // Auto returns a [Dimension] with [DimensionAuto] kind, meaning the layout
@@ -63,4 +68,22 @@ func Percent(v float32) Dimension {
 // Fr returns a fractional unit [Dimension] for CSS Grid track sizing.
 func Fr(v float32) Dimension {
 	return Dimension{Kind: DimensionFr, Value: v}
+}
+
+// MinMax returns a minmax(min, max) [Dimension] for CSS Grid track sizing.
+func MinMax(min, max Dimension) Dimension {
+	return Dimension{
+		Kind: DimensionMinMax,
+		Min:  &min,
+		Max:  &max,
+	}
+}
+
+// FitContent returns a fit-content(argument) [Dimension] for CSS Grid track sizing.
+func FitContent(v Dimension) Dimension {
+	return Dimension{
+		Kind:  DimensionFitContent,
+		Value: v.Value,
+		Max:   &v,
+	}
 }

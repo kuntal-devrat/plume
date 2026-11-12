@@ -295,20 +295,13 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		})
 	}
 
-	// Reverse lines for WrapReverse.
-	if wrap == FlexWrapWrapReverse {
-		for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-			lines[i], lines[j] = lines[j], lines[i]
-		}
-	}
-
 	// --- 6. Distribute free space per line (W3C §9.7) ---
 	for li := range lines {
 		line := &lines[li]
 		lineItems := items[line.startIdx : line.startIdx+line.count]
 		totalGaps := gap * float32(line.count-1)
 
-		isUnconstrainedAuto := id == t.root && ((isRow && node.Style.Width.Kind == DimensionAuto) || (!isRow && node.Style.Height.Kind == DimensionAuto))
+		isUnconstrainedAuto := id == t.root && ((isRow && node.Style.Width.Kind == DimensionAuto && node.Style.MinWidth.Kind == DimensionAuto) || (!isRow && node.Style.Height.Kind == DimensionAuto && node.Style.MinHeight.Kind == DimensionAuto))
 		if isUnconstrainedAuto {
 			for i := range lineItems {
 				cs := &t.nodes[lineItems[i].node].Style
@@ -447,17 +440,32 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 
 		var offset, spaceBetween, spaceBefore float32
 
+		effectiveJC := node.Style.JustifyContent
+		if effectiveJC == JustifyStart {
+			if isReverse {
+				effectiveJC = JustifyFlexEnd
+			} else {
+				effectiveJC = JustifyFlexStart
+			}
+		} else if effectiveJC == JustifyEnd {
+			if isReverse {
+				effectiveJC = JustifyFlexStart
+			} else {
+				effectiveJC = JustifyFlexEnd
+			}
+		}
+
 		if remaining < 0 {
-			switch node.Style.JustifyContent {
+			switch effectiveJC {
 			case JustifyFlexEnd:
 				offset = remaining
-			case JustifyCenter, JustifySpaceAround, JustifySpaceEvenly:
+			case JustifyCenter:
 				offset = remaining / 2
 			default:
 				offset = 0
 			}
 		} else {
-			switch node.Style.JustifyContent {
+			switch effectiveJC {
 			case JustifyFlexStart:
 				offset = 0
 			case JustifyFlexEnd:
@@ -524,12 +532,13 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			cs := &t.nodes[lineItems[i].node].Style
 			var cross float32
 			if isRow {
-				if node.Style.Height.Kind == DimensionAuto && cs.Height.Kind == DimensionPercent {
+				isContainerCrossAuto := (id == t.root && node.Style.Height.Kind == DimensionAuto) || crossSize <= 0
+				if isContainerCrossAuto && cs.Height.Kind == DimensionPercent {
 					cross = 0
 				} else {
 					cross = t.resolveDimension(cs.Height, crossSize)
 				}
-				if cs.Height.Kind == DimensionAuto || (node.Style.Height.Kind == DimensionAuto && cs.Height.Kind == DimensionPercent) {
+				if cs.Height.Kind == DimensionAuto || (isContainerCrossAuto && cs.Height.Kind == DimensionPercent) {
 					if cs.AspectRatio > 0 {
 						cross = lineItems[i].targetMain / cs.AspectRatio
 					} else if int(lineItems[i].node) < len(t.measureFuncs) && t.measureFuncs[lineItems[i].node] != nil {
@@ -542,12 +551,13 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				}
 				cross = t.clampSize(cross, cs.MinHeight, cs.MaxHeight, crossSize)
 			} else {
-				if node.Style.Width.Kind == DimensionAuto && cs.Width.Kind == DimensionPercent {
+				isContainerCrossAuto := (id == t.root && node.Style.Width.Kind == DimensionAuto) || crossSize <= 0
+				if isContainerCrossAuto && cs.Width.Kind == DimensionPercent {
 					cross = 0
 				} else {
 					cross = t.resolveDimension(cs.Width, crossSize)
 				}
-				if cs.Width.Kind == DimensionAuto || (node.Style.Width.Kind == DimensionAuto && cs.Width.Kind == DimensionPercent) {
+				if cs.Width.Kind == DimensionAuto || (isContainerCrossAuto && cs.Width.Kind == DimensionPercent) {
 					if cs.AspectRatio > 0 {
 						cross = lineItems[i].targetMain * cs.AspectRatio
 					} else if int(lineItems[i].node) < len(t.measureFuncs) && t.measureFuncs[lineItems[i].node] != nil {
@@ -620,7 +630,7 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	}
 
 	crossFreeSpace := crossSize - totalLineCross
-	if isAutoCross && crossFreeSpace > 0 {
+	if isAutoCross {
 		crossFreeSpace = 0
 	}
 
@@ -675,9 +685,13 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			lineOffset += lines[li].crossSize + lineSpacing + crossGap
 		}
 
-		if node.Style.FlexWrap == FlexWrapWrapReverse && crossSize > 0 {
+		if node.Style.FlexWrap == FlexWrapWrapReverse {
+			containerCross := crossSize
+			if containerCross <= 0 {
+				containerCross = totalLineCross
+			}
 			for li := range lines {
-				lines[li].lineOffset = crossSize - lines[li].lineOffset - lines[li].crossSize
+				lines[li].lineOffset = containerCross - lines[li].lineOffset - lines[li].crossSize
 			}
 		}
 	}
@@ -785,6 +799,28 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 					}
 				}
 				lineItems[i].crossOffset = marginCrossStart
+			} else if node.Style.FlexWrap == FlexWrapWrapReverse {
+				switch align {
+				case AlignStretch:
+					if cs.AspectRatio == 0 && (lineItems[i].crossSize == 0 || (isRow && cs.Height.Kind == DimensionAuto && availCross > 0) || (!isRow && cs.Width.Kind == DimensionAuto && availCross > 0)) {
+						lineItems[i].crossSize = availCross
+						lineItems[i].crossOffset = marginCrossStart
+					} else {
+						lineItems[i].crossOffset = line.crossSize - lineItems[i].crossSize - marginCrossStart
+					}
+				case AlignFlexStart:
+					lineItems[i].crossOffset = line.crossSize - lineItems[i].crossSize - marginCrossStart
+				case AlignFlexEnd:
+					lineItems[i].crossOffset = marginCrossEnd
+				case AlignCenter:
+					lineItems[i].crossOffset = marginCrossStart + (availCross-lineItems[i].crossSize)/2
+				case AlignBaseline:
+					b := lineItems[i].crossSize
+					if int(lineItems[i].node) < len(t.baselines) && t.baselines[lineItems[i].node] >= 0 {
+						b = t.baselines[lineItems[i].node]
+					}
+					lineItems[i].crossOffset = line.crossSize - (marginCrossStart + (maxBaseline - b) + lineItems[i].crossSize)
+				}
 			} else {
 				switch align {
 				case AlignStretch:
