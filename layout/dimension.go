@@ -23,6 +23,12 @@ const (
 
 	// DimensionMaxContent indicates intrinsic maximum content sizing.
 	DimensionMaxContent
+
+	// DimensionFitContent indicates fit-content sizing.
+	DimensionFitContent
+
+	// DimensionContent indicates content-based sizing (e.g. flex-basis: content).
+	DimensionContent
 )
 
 // Dimension represents a CSS dimension value that can be auto, an absolute

@@ -43,13 +43,25 @@ type xmlExpectNode struct {
 type xmlGenericNode struct {
 	XMLName  xml.Name         `xml:""`
 	Attrs    []xml.Attr       `xml:",any,attr"`
+	Content  string           `xml:",chardata"`
 	Children []xmlGenericNode `xml:",any"`
 }
 
 func parseWPTDimension(val string) Dimension {
 	val = strings.TrimSpace(val)
-	if val == "" || val == "auto" || val == "max-content" || val == "min-content" {
+	if val == "" || val == "auto" {
 		return Auto()
+	}
+	if val == "max-content" {
+		return Dimension{Kind: DimensionMaxContent}
+	}
+	if val == "min-content" {
+		return Dimension{Kind: DimensionMinContent}
+	}
+	if strings.HasPrefix(val, "fit-content(") && strings.HasSuffix(val, ")") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(val, "fit-content("), ")")
+		d := parseWPTDimension(inner)
+		return Dimension{Kind: DimensionFitContent, Value: d.Value}
 	}
 	if strings.HasSuffix(val, "px") {
 		num := strings.TrimSuffix(val, "px")
@@ -208,6 +220,8 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		s.AlignContent = AlignContentSpaceBetween
 	case "space-around":
 		s.AlignContent = AlignContentSpaceAround
+	case "space-evenly":
+		s.AlignContent = AlignContentSpaceEvenly
 	}
 
 	// Flex factors
@@ -222,7 +236,18 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		}
 	}
 	if v := getAttr("flex-basis"); v != "" {
-		s.FlexBasis = parseWPTDimension(v)
+		switch v {
+		case "content":
+			s.FlexBasis = Dimension{Kind: DimensionContent}
+		case "min-content":
+			s.FlexBasis = Dimension{Kind: DimensionMinContent}
+		case "max-content":
+			s.FlexBasis = Dimension{Kind: DimensionMaxContent}
+		case "fit-content":
+			s.FlexBasis = Dimension{Kind: DimensionFitContent}
+		default:
+			s.FlexBasis = parseWPTDimension(v)
+		}
 	}
 
 	// Dimensions
@@ -334,24 +359,49 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 	if v := getAttr("grid-template-rows"); v != "" {
 		s.GridTemplateRows = parseWPTTrackList(v)
 	}
-	if v := getAttr("grid-column-start"); v != "" {
+	parseSpan := func(v string) (val int16, isSpan bool) {
+		v = strings.TrimSpace(v)
+		if strings.HasPrefix(v, "span") {
+			parts := strings.Fields(v)
+			if len(parts) >= 2 {
+				if n, err := strconv.Atoi(parts[1]); err == nil {
+					return int16(n), true
+				}
+			}
+			return 1, true
+		}
 		if n, err := strconv.Atoi(v); err == nil {
-			s.GridColumnStart = int16(n)
+			return int16(n), false
+		}
+		return 0, false
+	}
+
+	if v := getAttr("grid-column-start"); v != "" {
+		if val, isSpan := parseSpan(v); isSpan {
+			s.GridColumnSpan = uint16(val)
+		} else if val != 0 {
+			s.GridColumnStart = val
 		}
 	}
 	if v := getAttr("grid-column-end"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			s.GridColumnEnd = int16(n)
+		if val, isSpan := parseSpan(v); isSpan {
+			s.GridColumnSpan = uint16(val)
+		} else if val != 0 {
+			s.GridColumnEnd = val
 		}
 	}
 	if v := getAttr("grid-row-start"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			s.GridRowStart = int16(n)
+		if val, isSpan := parseSpan(v); isSpan {
+			s.GridRowSpan = uint16(val)
+		} else if val != 0 {
+			s.GridRowStart = val
 		}
 	}
 	if v := getAttr("grid-row-end"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			s.GridRowEnd = int16(n)
+		if val, isSpan := parseSpan(v); isSpan {
+			s.GridRowSpan = uint16(val)
+		} else if val != 0 {
+			s.GridRowEnd = val
 		}
 	}
 
@@ -384,9 +434,96 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 	return s
 }
 
+func setupAhemTextMeasure(tree *Tree, nodeID NodeID, text string) {
+	text = strings.TrimSpace(text)
+	tree.SetBaseline(nodeID, 8.0) // 8px ascent for 10px Ahem font
+	tree.SetMeasureFunc(nodeID, func(t *Tree, node NodeID, w float32, wMode MeasureMode, h float32, hMode MeasureMode) (float32, float32) {
+		var words []float32
+		var totalChars float32
+		var curWordChars float32
+
+		for _, r := range text {
+			if r == '\u200B' {
+				if curWordChars > 0 {
+					words = append(words, curWordChars*10.0)
+					curWordChars = 0
+				}
+			} else if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+				if curWordChars > 0 {
+					words = append(words, curWordChars*10.0)
+					curWordChars = 0
+				}
+				totalChars += 1.0
+			} else {
+				curWordChars += 1.0
+				totalChars += 1.0
+			}
+		}
+		if curWordChars > 0 {
+			words = append(words, curWordChars*10.0)
+		}
+
+		maxWordWidth := float32(0)
+		for _, wVal := range words {
+			if wVal > maxWordWidth {
+				maxWordWidth = wVal
+			}
+		}
+		maxContentWidth := totalChars * 10.0
+		if maxContentWidth == 0 {
+			maxContentWidth = maxWordWidth
+		}
+
+		switch wMode {
+		case MeasureExact:
+			if w <= 0 {
+				return 0, 0
+			}
+			if w >= maxContentWidth {
+				return w, 10.0
+			}
+			lines := 1
+			lineW := float32(0)
+			for _, ww := range words {
+				if lineW > 0 && lineW+ww > w {
+					lines++
+					lineW = ww
+				} else {
+					lineW += ww
+				}
+			}
+			return w, float32(lines) * 10.0
+		case MeasureAtMost:
+			if w <= 0 {
+				return maxWordWidth, float32(len(words)) * 10.0
+			}
+			if w >= maxContentWidth {
+				return maxContentWidth, 10.0
+			}
+			lines := 1
+			lineW := float32(0)
+			for _, ww := range words {
+				if lineW > 0 && lineW+ww > w {
+					lines++
+					lineW = ww
+				} else {
+					lineW += ww
+				}
+			}
+			return w, float32(lines) * 10.0
+		default: // MeasureUndefined
+			return maxContentWidth, 10.0
+		}
+	})
+}
+
 func buildPlumeTreeFromXML(tree *Tree, xmlNode *xmlGenericNode) NodeID {
 	style := parseWPTStyle(xmlNode)
 	nodeID := tree.NewNode(style)
+	content := strings.TrimSpace(xmlNode.Content)
+	if xmlNode.XMLName.Local == "text" || content != "" {
+		setupAhemTextMeasure(tree, nodeID, xmlNode.Content)
+	}
 	for i := range xmlNode.Children {
 		childID := buildPlumeTreeFromXML(tree, &xmlNode.Children[i])
 		tree.AddChild(nodeID, childID)
@@ -451,7 +588,11 @@ func TestWPTAutomatedFlexAndGrid(t *testing.T) {
 		failed := 0
 		skipped := 0
 
+		filter := os.Getenv("WPT_FILTER")
 		for _, file := range files {
+			if filter != "" && !strings.Contains(filepath.Base(file), filter) {
+				continue
+			}
 			data, err := os.ReadFile(file)
 			if err != nil {
 				continue
@@ -490,10 +631,17 @@ func TestWPTAutomatedFlexAndGrid(t *testing.T) {
 			expectedRoot := &doc.Expectations.Nodes[0]
 			if ok, diff := verifyExpectations(t, tree, rootID, expectedRoot, 1.0, doc.Name); ok {
 				passed++
+				if filter != "" {
+					t.Logf("[%s PASS] %s", category, filepath.Base(file))
+				}
 			} else {
 				failed++
-				if failed <= 5 {
-					t.Logf("[%s FAIL] %s: %s", category, filepath.Base(file), diff)
+				t.Logf("[%s FAIL] %s: %s", category, filepath.Base(file), diff)
+				if filter != "" {
+					for n := 0; n < len(tree.nodes); n++ {
+						t.Logf("  node %d: computed=%+v style.Display=%v MaxHeight=%+v Height=%+v Padding=%+v",
+							n, tree.nodes[n].Computed, tree.nodes[n].Style.Display, tree.nodes[n].Style.MaxHeight, tree.nodes[n].Style.Height, tree.nodes[n].Style.Padding)
+					}
 				}
 			}
 		}

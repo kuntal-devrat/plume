@@ -92,6 +92,8 @@ const (
 	// JustifySpaceEvenly distributes items with equal space between and
 	// around all items.
 	JustifySpaceEvenly
+	// JustifyStretch stretches auto items along the main axis.
+	JustifyStretch
 )
 
 // ---------------------------------------------------------------------------
@@ -138,6 +140,8 @@ const (
 	AlignContentSpaceBetween
 	// AlignContentSpaceAround distributes lines with equal space around each.
 	AlignContentSpaceAround
+	// AlignContentSpaceEvenly distributes lines with equal space between and around each.
+	AlignContentSpaceEvenly
 )
 
 // ---------------------------------------------------------------------------

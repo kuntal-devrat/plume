@@ -279,20 +279,10 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	}
 
 	// 5. Track Sizing Algorithm (Columns & Rows)
-	t.colSizes = t.resolveTracks(node.Style.GridTemplateColumns, totalCols, contentWidth, colGap, true, t.colSizes)
-	t.rowSizes = t.resolveTracks(node.Style.GridTemplateRows, totalRows, contentHeight, rowGap, false, t.rowSizes)
-
-	// Update container height if Auto
-	if node.Style.Height.Kind == DimensionAuto && contentHeight <= 0 {
-		var sumH float32
-		for _, h := range t.rowSizes {
-			sumH += h
-		}
-		if totalRows > 1 {
-			sumH += float32(totalRows-1) * rowGap
-		}
-		node.Computed.Height = sumH + padTop + t.resolveDimensionOrZero(node.Style.Padding.Bottom, parentHeight)
-	}
+	shouldStretchCols := node.Style.JustifyContent == JustifyStretch
+	shouldStretchRows := node.Style.AlignContent == AlignContentStretch
+	t.colSizes = t.resolveTracks(node.Style.GridTemplateColumns, totalCols, contentWidth, colGap, true, t.colSizes, shouldStretchCols)
+	t.rowSizes = t.resolveTracks(node.Style.GridTemplateRows, totalRows, contentHeight, rowGap, false, t.rowSizes, shouldStretchRows)
 
 	// 5b. Align-Content & Justify-Content for the Grid Tracks (CSS Grid §10.5)
 	var totalColWidth, totalRowHeight float32
@@ -309,9 +299,24 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		totalRowHeight += float32(totalRows-1) * rowGap
 	}
 
+	// Update container width/height if Auto
+	if node.Style.Width.Kind == DimensionAuto {
+		node.Computed.Width = totalColWidth + padLeft + t.resolveDimensionOrZero(node.Style.Padding.Right, parentWidth)
+	}
+	if node.Style.Height.Kind == DimensionAuto {
+		node.Computed.Height = totalRowHeight + padTop + t.resolveDimensionOrZero(node.Style.Padding.Bottom, parentHeight)
+	}
+
 	var gridAlignOffsetY, gridJustifyOffsetX float32
-	if contentHeight > totalRowHeight {
-		freeY := contentHeight - totalRowHeight
+	freeY := contentHeight - totalRowHeight
+	if freeY < 0 {
+		switch node.Style.AlignContent {
+		case AlignContentCenter:
+			gridAlignOffsetY = freeY * 0.5
+		case AlignContentFlexEnd:
+			gridAlignOffsetY = freeY
+		}
+	} else if freeY > 0 {
 		switch node.Style.AlignContent {
 		case AlignContentCenter:
 			gridAlignOffsetY = freeY * 0.5
@@ -327,10 +332,24 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				gridAlignOffsetY = space * 0.5
 				rowGap += space
 			}
+		case AlignContentSpaceEvenly:
+			if totalRows > 0 {
+				space := freeY / float32(totalRows+1)
+				gridAlignOffsetY = space
+				rowGap += space
+			}
 		}
 	}
-	if contentWidth > totalColWidth {
-		freeX := contentWidth - totalColWidth
+
+	freeX := contentWidth - totalColWidth
+	if freeX < 0 {
+		switch node.Style.JustifyContent {
+		case JustifyCenter:
+			gridJustifyOffsetX = freeX * 0.5
+		case JustifyFlexEnd:
+			gridJustifyOffsetX = freeX
+		}
+	} else if freeX > 0 {
 		switch node.Style.JustifyContent {
 		case JustifyCenter:
 			gridJustifyOffsetX = freeX * 0.5
@@ -344,6 +363,12 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			if totalCols > 0 {
 				space := freeX / float32(totalCols)
 				gridJustifyOffsetX = space * 0.5
+				colGap += space
+			}
+		case JustifySpaceEvenly:
+			if totalCols > 0 {
+				space := freeX / float32(totalCols+1)
+				gridJustifyOffsetX = space
 				colGap += space
 			}
 		}
@@ -417,10 +442,18 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			mRight = t.resolveDimensionOrZero(c.Style.Margin.Right, cellW)
 		}
 		if !isAutoMTop {
-			mTop = t.resolveDimensionOrZero(c.Style.Margin.Top, cellH)
+			ref := cellH
+			if c.Style.Margin.Top.Kind == DimensionPercent {
+				ref = cellW
+			}
+			mTop = t.resolveDimensionOrZero(c.Style.Margin.Top, ref)
 		}
 		if !isAutoMBottom {
-			mBottom = t.resolveDimensionOrZero(c.Style.Margin.Bottom, cellH)
+			ref := cellH
+			if c.Style.Margin.Bottom.Kind == DimensionPercent {
+				ref = cellW
+			}
+			mBottom = t.resolveDimensionOrZero(c.Style.Margin.Bottom, ref)
 		}
 
 		availW := cellW - mLeft - mRight
@@ -484,12 +517,12 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			itemX = cellX + mLeft
 		} else {
 			switch justify {
-			case AlignStretch, AlignFlexStart:
-				itemX = cellX + mLeft
 			case AlignFlexEnd:
 				itemX = cellX + cellW - itemW - mRight
 			case AlignCenter:
 				itemX = cellX + mLeft + (availW-itemW)*0.5
+			default: // AlignStretch, AlignFlexStart, AlignBaseline
+				itemX = cellX + mLeft
 			}
 		}
 
@@ -503,12 +536,12 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			itemY = cellY + mTop
 		} else {
 			switch align {
-			case AlignStretch, AlignFlexStart:
-				itemY = cellY + mTop
 			case AlignFlexEnd:
 				itemY = cellY + cellH - itemH - mBottom
 			case AlignCenter:
 				itemY = cellY + mTop + (availH-itemH)*0.5
+			default: // AlignStretch, AlignFlexStart, AlignBaseline
+				itemY = cellY + mTop
 			}
 		}
 
@@ -550,7 +583,7 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 }
 
 // resolveTracks computes the pixel sizes of grid tracks.
-func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSize, gap float32, isCol bool, dst []float32) []float32 {
+func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSize, gap float32, isCol bool, dst []float32, shouldStretch bool) []float32 {
 	if cap(dst) < totalTracks {
 		dst = make([]float32, totalTracks)
 	} else {
@@ -572,17 +605,17 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 	}
 
 	remainingSpace := availSpace
-	totalFr := float32(0)
 
-	// Pass 1: Resolve fixed, percentage, and auto-content tracks
-	for i := 0; i < totalTracks; i++ {
-		var dim Dimension
-		if i < len(templates) {
-			dim = templates[i]
-		} else {
-			// Implicit tracks default to 1fr
-			dim = Fr(1)
+	getDim := func(idx int) Dimension {
+		if idx < len(templates) {
+			return templates[idx]
 		}
+		return Auto()
+	}
+
+	// Pass 1: Resolve fixed, percentage, and 1-span content tracks
+	for i := 0; i < totalTracks; i++ {
+		dim := getDim(i)
 
 		switch dim.Kind {
 		case DimensionPx:
@@ -592,10 +625,7 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 			val := containerSize * dim.Value / 100.0
 			dst[i] = val
 			remainingSpace -= val
-		case DimensionFr:
-			totalFr += dim.Value
 		case DimensionAuto, DimensionMinContent, DimensionMaxContent:
-			// Measure intrinsic content contribution of items in this track
 			var maxItemContent float32
 			for _, it := range t.gridItems {
 				span := it.colSpan
@@ -605,25 +635,7 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 					start = it.rowStart
 				}
 				if span == 1 && start == i {
-					c := &t.nodes[it.node]
-					var sz float32
-					if isCol {
-						if c.Style.Width.Kind == DimensionPx {
-							sz = c.Style.Width.Value
-						} else if c.Style.Width.Kind == DimensionPercent {
-							sz = containerSize * c.Style.Width.Value / 100.0
-						} else {
-							sz = t.computeMinContentSize(it.node, true, containerSize, 0)
-						}
-					} else {
-						if c.Style.Height.Kind == DimensionPx {
-							sz = c.Style.Height.Value
-						} else if c.Style.Height.Kind == DimensionPercent {
-							sz = containerSize * c.Style.Height.Value / 100.0
-						} else {
-							sz = t.computeMinContentSize(it.node, false, 0, containerSize)
-						}
-					}
+					sz := t.computeGridItemContentSize(&it, isCol, containerSize)
 					if sz > maxItemContent {
 						maxItemContent = sz
 					}
@@ -633,33 +645,125 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 			if maxItemContent > 0 {
 				dst[i] = maxItemContent
 				remainingSpace -= maxItemContent
-			} else {
-				totalFr += 1.0
 			}
 		}
 	}
 
-	// Pass 2: Distribute remaining space to flexible (fr) tracks
-	if remainingSpace > 0 && totalFr > 0 {
-		frUnit := remainingSpace / totalFr
-		for i := 0; i < totalTracks; i++ {
-			var dim Dimension
-			if i < len(templates) {
-				dim = templates[i]
-			} else {
-				dim = Fr(1)
+	// Pass 2: Multi-span content tracks (W3C Grid §11.5)
+	for spanLen := 2; spanLen <= totalTracks; spanLen++ {
+		for _, it := range t.gridItems {
+			span := it.colSpan
+			start := it.colStart
+			if !isCol {
+				span = it.rowSpan
+				start = it.rowStart
 			}
+			if span == spanLen {
+				end := start + span
+				if end > totalTracks {
+					end = totalTracks
+				}
+				var currentSize float32
+				countContent := 0
+				for k := start; k < end; k++ {
+					currentSize += dst[k]
+					dim := getDim(k)
+					if dim.Kind == DimensionAuto || dim.Kind == DimensionMinContent || dim.Kind == DimensionMaxContent {
+						countContent++
+					}
+				}
+				sz := t.computeGridItemContentSize(&it, isCol, containerSize)
+				if sz > currentSize {
+					diff := sz - currentSize
+					if countContent > 0 {
+						share := diff / float32(countContent)
+						for k := start; k < end; k++ {
+							dim := getDim(k)
+							if dim.Kind == DimensionAuto || dim.Kind == DimensionMinContent || dim.Kind == DimensionMaxContent {
+								dst[k] += share
+								remainingSpace -= share
+							}
+						}
+					} else if end > start {
+						share := diff / float32(end-start)
+						for k := start; k < end; k++ {
+							dst[k] += share
+							remainingSpace -= share
+						}
+					}
+				}
+			}
+		}
+	}
 
-			switch dim.Kind {
-			case DimensionFr:
-				dst[i] = dim.Value * frUnit
-			case DimensionAuto, DimensionMinContent, DimensionMaxContent:
-				if dst[i] == 0 {
+	// Pass 3: Distribute remaining space to flexible (fr) tracks & auto tracks (W3C Grid §7.2)
+	var totalFr float32
+	var autoCount int
+	for i := 0; i < totalTracks; i++ {
+		dim := getDim(i)
+		if dim.Kind == DimensionFr {
+			totalFr += dim.Value
+		} else if dim.Kind == DimensionAuto {
+			if dst[i] == 0 {
+				totalFr += 1.0
+			} else {
+				autoCount++
+			}
+		}
+	}
+
+	if remainingSpace > 0 {
+		if totalFr > 0 {
+			frUnit := remainingSpace / totalFr
+			for i := 0; i < totalTracks; i++ {
+				dim := getDim(i)
+				if dim.Kind == DimensionFr {
+					dst[i] = dim.Value * frUnit
+				} else if dim.Kind == DimensionAuto && dst[i] == 0 {
 					dst[i] = 1.0 * frUnit
+				}
+			}
+		} else if autoCount > 0 && shouldStretch {
+			// CSS Grid §7.2: Auto tracks behave as minmax(min-content, 1fr)
+			// When no fr tracks exist, distribute remaining space equally among auto tracks
+			share := remainingSpace / float32(autoCount)
+			for i := 0; i < totalTracks; i++ {
+				dim := getDim(i)
+				if dim.Kind == DimensionAuto {
+					dst[i] += share
 				}
 			}
 		}
 	}
 
 	return dst
+}
+
+func (t *Tree) computeGridItemContentSize(it *gridItemScratch, isCol bool, containerSize float32) float32 {
+	c := &t.nodes[it.node]
+	if isCol {
+		if c.Style.Width.Kind == DimensionPx {
+			return c.Style.Width.Value
+		} else if c.Style.Width.Kind == DimensionPercent {
+			return containerSize * c.Style.Width.Value / 100.0
+		}
+		if int(it.node) < len(t.measureFuncs) && t.measureFuncs[it.node] != nil {
+			fn := t.measureFuncs[it.node]
+			mw, _ := fn(t, it.node, 0, MeasureUndefined, 0, MeasureUndefined)
+			return mw
+		}
+		return t.computeMinContentSize(it.node, true, containerSize, 0)
+	} else {
+		if c.Style.Height.Kind == DimensionPx {
+			return c.Style.Height.Value
+		} else if c.Style.Height.Kind == DimensionPercent {
+			return containerSize * c.Style.Height.Value / 100.0
+		}
+		if int(it.node) < len(t.measureFuncs) && t.measureFuncs[it.node] != nil {
+			fn := t.measureFuncs[it.node]
+			_, mh := fn(t, it.node, 0, MeasureUndefined, 0, MeasureUndefined)
+			return mh
+		}
+		return t.computeMinContentSize(it.node, false, 0, containerSize)
+	}
 }

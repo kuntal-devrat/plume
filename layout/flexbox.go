@@ -77,7 +77,11 @@ func (t *Tree) computeNode(id NodeID, parentWidth, parentHeight float32) {
 		width = parentWidth
 	}
 	if node.Style.Height.Kind == DimensionAuto && height < 0 {
-		height = parentHeight
+		if id != t.root {
+			height = parentHeight
+		} else {
+			height = 0
+		}
 	}
 
 	// Content box = outer size minus padding.
@@ -307,11 +311,25 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		isUnconstrainedAuto := id == t.root && ((isRow && node.Style.Width.Kind == DimensionAuto) || (!isRow && node.Style.Height.Kind == DimensionAuto))
 		if isUnconstrainedAuto {
 			for i := range lineItems {
-				lineItems[i].targetMain = lineItems[i].flexBasis
+				cs := &t.nodes[lineItems[i].node].Style
+				target := lineItems[i].flexBasis
+				if isRow {
+					target = t.clampSize(target, cs.MinWidth, cs.MaxWidth, mainSize)
+				} else {
+					target = t.clampSize(target, cs.MinHeight, cs.MaxHeight, mainSize)
+				}
+				lineItems[i].targetMain = target
 			}
 		} else {
 			for i := range lineItems {
-				lineItems[i].targetMain = lineItems[i].flexBasis
+				cs := &t.nodes[lineItems[i].node].Style
+				target := lineItems[i].flexBasis
+				if isRow {
+					target = t.clampSize(target, cs.MinWidth, cs.MaxWidth, mainSize)
+				} else {
+					target = t.clampSize(target, cs.MinHeight, cs.MaxHeight, mainSize)
+				}
+				lineItems[i].targetMain = target
 			}
 			frozen := make([]bool, len(lineItems))
 			for pass := 0; pass < len(lineItems); pass++ {
@@ -565,15 +583,106 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		line.crossSize = maxCross
 	}
 
-	// --- 8. Align-items / align-self along cross axis ---
+	// --- 8. Align-content for lines (W3C §8.4) ---
 	// For single-line containers without wrapping, the line's cross size
 	// is the full container cross size if the container has a definite cross size.
-	if len(lines) == 1 && node.Style.FlexWrap == FlexWrapNoWrap {
-		isAutoCross := id == t.root && ((isRow && node.Style.Height.Kind == DimensionAuto) || (!isRow && node.Style.Width.Kind == DimensionAuto))
-		if !isAutoCross {
-			lines[0].crossSize = crossSize
+	isAutoCross := id == t.root && ((isRow && node.Style.Height.Kind == DimensionAuto) || (!isRow && node.Style.Width.Kind == DimensionAuto))
+	hasMinCross := (isRow && node.Style.MinHeight.Kind != DimensionAuto) || (!isRow && node.Style.MinWidth.Kind != DimensionAuto)
+
+	var maxCrossVal float32 = -1
+	if isRow {
+		if node.Style.MaxHeight.Kind != DimensionAuto {
+			maxCrossVal = t.resolveDimension(node.Style.MaxHeight, parentHeight)
+		}
+	} else {
+		if node.Style.MaxWidth.Kind != DimensionAuto {
+			maxCrossVal = t.resolveDimension(node.Style.MaxWidth, parentWidth)
 		}
 	}
+
+	if len(lines) == 1 && node.Style.FlexWrap == FlexWrapNoWrap {
+		if !isAutoCross {
+			lines[0].crossSize = crossSize
+		} else if hasMinCross && crossSize > lines[0].crossSize {
+			lines[0].crossSize = crossSize
+		}
+		if maxCrossVal >= 0 && lines[0].crossSize > maxCrossVal {
+			lines[0].crossSize = maxCrossVal
+		}
+	}
+
+	var totalLineCross float32
+	for li := range lines {
+		totalLineCross += lines[li].crossSize
+	}
+	if len(lines) > 1 {
+		totalLineCross += float32(len(lines)-1) * crossGap
+	}
+
+	crossFreeSpace := crossSize - totalLineCross
+	if isAutoCross && crossFreeSpace > 0 {
+		crossFreeSpace = 0
+	}
+
+	{
+		var lineOffset, lineSpacing float32
+		nLines := len(lines)
+
+		if crossFreeSpace < 0 {
+			switch node.Style.AlignContent {
+			case AlignContentCenter:
+				lineOffset = crossFreeSpace / 2
+			case AlignContentFlexEnd:
+				lineOffset = crossFreeSpace
+			}
+		} else if crossFreeSpace > 0 {
+			switch node.Style.AlignContent {
+			case AlignContentStretch:
+				if nLines > 0 {
+					extra := crossFreeSpace / float32(nLines)
+					for li := range lines {
+						lines[li].crossSize += extra
+					}
+					crossFreeSpace = 0
+				}
+			case AlignContentFlexStart:
+				// lineOffset = 0
+			case AlignContentFlexEnd:
+				lineOffset = crossFreeSpace
+			case AlignContentCenter:
+				lineOffset = crossFreeSpace / 2
+			case AlignContentSpaceBetween:
+				if nLines > 1 {
+					lineSpacing = crossFreeSpace / float32(nLines-1)
+				}
+			case AlignContentSpaceAround:
+				if nLines > 0 {
+					spaceBefore := crossFreeSpace / float32(nLines) / 2
+					lineSpacing = crossFreeSpace / float32(nLines)
+					lineOffset = spaceBefore
+				}
+			case AlignContentSpaceEvenly:
+				if nLines > 0 {
+					space := crossFreeSpace / float32(nLines+1)
+					lineOffset = space
+					lineSpacing = space
+				}
+			}
+		}
+
+		for li := range lines {
+			lines[li].lineOffset = lineOffset
+			lineOffset += lines[li].crossSize + lineSpacing + crossGap
+		}
+
+		if node.Style.FlexWrap == FlexWrapWrapReverse && crossSize > 0 {
+			for li := range lines {
+				lines[li].lineOffset = crossSize - lines[li].lineOffset - lines[li].crossSize
+			}
+		}
+	}
+
+	// --- 9. Align-items / align-self along cross axis within each line ---
 
 	for li := range lines {
 		line := &lines[li]
@@ -697,59 +806,6 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 					lineItems[i].crossOffset = marginCrossStart + (availCross-lineItems[i].crossSize)/2
 				}
 			}
-		}
-	}
-
-	// --- 9. Align-content for multi-line containers ---
-	var totalLineCross float32
-	for li := range lines {
-		totalLineCross += lines[li].crossSize
-	}
-	if len(lines) > 1 {
-		totalLineCross += float32(len(lines)-1) * crossGap
-	}
-
-	crossFreeSpace := crossSize - totalLineCross
-	isAutoCross := id == t.root && ((isRow && node.Style.Height.Kind == DimensionAuto) || (!isRow && node.Style.Width.Kind == DimensionAuto))
-	if crossFreeSpace < 0 || isAutoCross {
-		crossFreeSpace = 0
-	}
-
-	{
-		var lineOffset, lineSpacing, lineBefore float32
-		nLines := len(lines)
-
-		switch node.Style.AlignContent {
-		case AlignContentStretch:
-			// Distribute extra space equally among lines.
-			if nLines > 0 && crossFreeSpace > 0 {
-				extra := crossFreeSpace / float32(nLines)
-				for li := range lines {
-					lines[li].crossSize += extra
-				}
-				crossFreeSpace = 0
-			}
-		case AlignContentFlexStart:
-			// default: lineOffset = 0
-		case AlignContentFlexEnd:
-			lineOffset = crossFreeSpace
-		case AlignContentCenter:
-			lineOffset = crossFreeSpace / 2
-		case AlignContentSpaceBetween:
-			if nLines > 1 {
-				lineSpacing = crossFreeSpace / float32(nLines-1)
-			}
-		case AlignContentSpaceAround:
-			if nLines > 0 {
-				lineBefore = crossFreeSpace / float32(nLines) / 2
-				lineSpacing = crossFreeSpace / float32(nLines)
-				lineOffset = lineBefore
-			}
-		}
-
-		for li := range lines {
-			lines[li].lineOffset = lineOffset
-			lineOffset += lines[li].crossSize + lineSpacing + crossGap
 		}
 	}
 
@@ -1042,6 +1098,14 @@ func (t *Tree) computeMaxContentSize(node NodeID, isRow bool, mainSize float32) 
 			return t.resolveDimension(cs.MaxHeight, mainSize)
 		}
 	}
+	if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
+		fn := t.measureFuncs[node]
+		mw, mh := fn(t, node, 0, MeasureUndefined, 0, MeasureUndefined)
+		if isRow {
+			return mw
+		}
+		return mh
+	}
 	return -1
 }
 
@@ -1053,6 +1117,43 @@ func (t *Tree) resolveFlexBasis(node NodeID, s *Style, isRow bool, mainSize floa
 		return s.FlexBasis.Value
 	case DimensionPercent:
 		return mainSize * s.FlexBasis.Value / 100
+	case DimensionContent, DimensionMaxContent:
+		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
+			fn := t.measureFuncs[node]
+			mw, mh := fn(t, node, 0, MeasureUndefined, 0, MeasureUndefined)
+			if isRow {
+				return mw
+			}
+			return mh
+		}
+		return t.computeMaxContentSize(node, isRow, mainSize)
+	case DimensionMinContent:
+		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
+			fn := t.measureFuncs[node]
+			mw, mh := fn(t, node, 0, MeasureAtMost, 0, MeasureUndefined)
+			if isRow {
+				return mw
+			}
+			return mh
+		}
+		return t.computeMinContentSize(node, isRow, mainSize, 0)
+	case DimensionFitContent:
+		var minC, maxC float32
+		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
+			fn := t.measureFuncs[node]
+			minW, _ := fn(t, node, 0, MeasureAtMost, 0, MeasureUndefined)
+			maxW, _ := fn(t, node, 0, MeasureUndefined, 0, MeasureUndefined)
+			minC = minW
+			maxC = maxW
+		}
+		fit := mainSize
+		if fit < minC {
+			fit = minC
+		}
+		if fit > maxC {
+			fit = maxC
+		}
+		return fit
 	}
 
 	// 2. Fall back to width/height depending on main axis
