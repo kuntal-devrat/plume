@@ -212,14 +212,27 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 	switch ai {
 	case "stretch":
 		s.AlignItems = AlignStretch
-	case "flex-start", "start":
+	case "flex-start", "start", "self-start":
 		s.AlignItems = AlignFlexStart
-	case "flex-end", "end":
+	case "flex-end", "end", "self-end":
 		s.AlignItems = AlignFlexEnd
 	case "center":
 		s.AlignItems = AlignCenter
 	case "baseline":
 		s.AlignItems = AlignBaseline
+	}
+
+	// Justify Items
+	ji := getAttr("justify-items")
+	switch ji {
+	case "stretch":
+		s.JustifyItems = AlignStretch
+	case "flex-start", "start", "self-start":
+		s.JustifyItems = AlignFlexStart
+	case "flex-end", "end", "self-end":
+		s.JustifyItems = AlignFlexEnd
+	case "center":
+		s.JustifyItems = AlignCenter
 	}
 
 	// Align Self
@@ -229,14 +242,29 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		s.AlignSelf = AlignSelfAuto
 	case "stretch":
 		s.AlignSelf = AlignSelfStretch
-	case "flex-start", "start":
+	case "flex-start", "start", "self-start":
 		s.AlignSelf = AlignSelfFlexStart
-	case "flex-end", "end":
+	case "flex-end", "end", "self-end":
 		s.AlignSelf = AlignSelfFlexEnd
 	case "center":
 		s.AlignSelf = AlignSelfCenter
 	case "baseline":
 		s.AlignSelf = AlignSelfBaseline
+	}
+
+	// Justify Self
+	js := getAttr("justify-self")
+	switch js {
+	case "auto":
+		s.JustifySelf = AlignSelfAuto
+	case "stretch":
+		s.JustifySelf = AlignSelfStretch
+	case "flex-start", "start", "self-start":
+		s.JustifySelf = AlignSelfFlexStart
+	case "flex-end", "end", "self-end":
+		s.JustifySelf = AlignSelfFlexEnd
+	case "center":
+		s.JustifySelf = AlignSelfCenter
 	}
 
 	// Align Content

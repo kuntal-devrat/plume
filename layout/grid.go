@@ -1,5 +1,22 @@
 package layout
 
+func mapAlignSelfToAlignItems(as AlignSelf, fallback AlignItems) AlignItems {
+	switch as {
+	case AlignSelfStretch:
+		return AlignStretch
+	case AlignSelfFlexStart:
+		return AlignFlexStart
+	case AlignSelfFlexEnd:
+		return AlignFlexEnd
+	case AlignSelfCenter:
+		return AlignCenter
+	case AlignSelfBaseline:
+		return AlignBaseline
+	default:
+		return fallback
+	}
+}
+
 // layoutGrid implements the W3C CSS Grid Layout Module Level 1 algorithm.
 func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTop, parentWidth, parentHeight float32) {
 	node := &t.nodes[id]
@@ -436,17 +453,20 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		}
 
 		// Alignment within grid cell
-		justify := node.Style.AlignItems
+		justify := AlignStretch
 		if node.Style.JustifyItems != 0 {
 			justify = node.Style.JustifyItems
 		}
 		if c.Style.JustifySelf != AlignSelfAuto {
-			justify = AlignItems(c.Style.JustifySelf)
+			justify = mapAlignSelfToAlignItems(c.Style.JustifySelf, justify)
 		}
 
 		align := node.Style.AlignItems
+		if align == 0 {
+			align = AlignStretch
+		}
 		if c.Style.AlignSelf != AlignSelfAuto {
-			align = AlignItems(c.Style.AlignSelf)
+			align = mapAlignSelfToAlignItems(c.Style.AlignSelf, align)
 		}
 
 		// Resolve margins

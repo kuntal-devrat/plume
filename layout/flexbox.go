@@ -74,10 +74,24 @@ func (t *Tree) computeNode(id NodeID, parentWidth, parentHeight float32) {
 	// If width/height are auto and we have a definite parent, default to
 	// the parent size (block-level behaviour for the root / non-flex items).
 	if node.Style.Width.Kind == DimensionAuto && width < 0 {
-		width = parentWidth
+		if node.Style.Position == PositionAbsolute {
+			if node.Style.MinWidth.Kind != DimensionAuto {
+				width = t.resolveDimensionOrZero(node.Style.MinWidth, parentWidth)
+			} else {
+				width = 0
+			}
+		} else {
+			width = parentWidth
+		}
 	}
 	if node.Style.Height.Kind == DimensionAuto && height < 0 {
-		if id != t.root {
+		if node.Style.Position == PositionAbsolute {
+			if node.Style.MinHeight.Kind != DimensionAuto {
+				height = t.resolveDimensionOrZero(node.Style.MinHeight, parentHeight)
+			} else {
+				height = 0
+			}
+		} else if id != t.root {
 			height = parentHeight
 		} else {
 			height = 0
