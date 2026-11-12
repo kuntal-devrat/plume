@@ -534,3 +534,379 @@ func BenchmarkLayoutComplexDashboard(b *testing.B) {
 		tree.Compute(1280, 800)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 10. Navbar Pattern: margin-left: auto on Flex Items (W3C §8.1)
+// ---------------------------------------------------------------------------
+
+func TestNavbarMarginAutoMainAxis(t *testing.T) {
+	tree := NewTree()
+
+	nav := tree.NewNode(Style{
+		Display:       DisplayFlex,
+		FlexDirection: FlexDirectionRow,
+		Width:         Px(800),
+		Height:        Px(60),
+	})
+
+	logo := tree.NewNode(Style{
+		Width:  Px(100),
+		Height: Px(40),
+	})
+
+	login := tree.NewNode(Style{
+		Width:  Px(80),
+		Height: Px(40),
+		Margin: Edges{Left: Auto()},
+	})
+
+	tree.AddChild(nav, logo)
+	tree.AddChild(nav, login)
+
+	tree.Compute(800, 60)
+
+	// In 800px bar: logo at 0 (100px), login pushed to 800 - 80 = 720px
+	assertRect(t, tree, logo, "navbar-logo", 0, 0, 100, 40)
+	assertRect(t, tree, login, "navbar-login-auto-margin", 720, 0, 80, 40)
+}
+
+// ---------------------------------------------------------------------------
+// 11. Cross-Axis margin: auto Vertical Centering (W3C §8.1)
+// ---------------------------------------------------------------------------
+
+func TestCrossAxisMarginAutoCentering(t *testing.T) {
+	tree := NewTree()
+
+	container := tree.NewNode(Style{
+		Display:       DisplayFlex,
+		FlexDirection: FlexDirectionRow,
+		Width:         Px(500),
+		Height:        Px(200),
+	})
+
+	item := tree.NewNode(Style{
+		Width:  Px(100),
+		Height: Px(40),
+		Margin: Edges{Top: Auto(), Bottom: Auto()},
+	})
+
+	tree.AddChild(container, item)
+	tree.Compute(500, 200)
+
+	// Centered vertically: (200 - 40) / 2 = 80px
+	assertRect(t, tree, item, "vertical-centered-margin-auto", 0, 80, 100, 40)
+}
+
+// ---------------------------------------------------------------------------
+// 12. FlexWrap with RowGap vs ColumnGap
+// ---------------------------------------------------------------------------
+
+func TestFlexWrapRowAndColumnGaps(t *testing.T) {
+	tree := NewTree()
+
+	container := tree.NewNode(Style{
+		Display:       DisplayFlex,
+		FlexDirection: FlexDirectionRow,
+		FlexWrap:      FlexWrapWrap,
+		RowGap:        Px(20),
+		ColumnGap:     Px(10),
+		Width:         Px(200),
+		Height:        Auto(),
+	})
+
+	i1 := tree.NewNode(Style{Width: Px(90), Height: Px(50)})
+	i2 := tree.NewNode(Style{Width: Px(90), Height: Px(50)})
+	i3 := tree.NewNode(Style{Width: Px(90), Height: Px(50)})
+
+	tree.AddChild(container, i1)
+	tree.AddChild(container, i2)
+	tree.AddChild(container, i3)
+
+	tree.Compute(200, 600)
+
+	// Line 1: i1 at X=0, i2 at X=100 (90 + 10). Height = 50.
+	// Line 2: i3 at X=0, Y=70 (50 + 20 row-gap). Height = 50.
+	// Container total height = 50 + 20 + 50 = 120px.
+	assertRect(t, tree, container, "wrap-container", 0, 0, 200, 120)
+	assertRect(t, tree, i1, "wrap-i1", 0, 0, 90, 50)
+	assertRect(t, tree, i2, "wrap-i2", 100, 0, 90, 50)
+	assertRect(t, tree, i3, "wrap-i3", 0, 70, 90, 50)
+}
+
+// ---------------------------------------------------------------------------
+// 13. Absolute Modal Centering (inset: 0, margin: auto)
+// ---------------------------------------------------------------------------
+
+func TestAbsoluteModalInsetMarginAuto(t *testing.T) {
+	tree := NewTree()
+
+	root := tree.NewNode(Style{
+		Display: DisplayFlex,
+		Width:   Px(800),
+		Height:  Px(600),
+	})
+
+	modal := tree.NewNode(Style{
+		Position: PositionAbsolute,
+		Inset:    Edges{Left: Px(0), Right: Px(0), Top: Px(0), Bottom: Px(0)},
+		Width:    Px(300),
+		Height:   Px(200),
+		Margin:   Edges{Left: Auto(), Right: Auto(), Top: Auto(), Bottom: Auto()},
+	})
+
+	tree.AddChild(root, modal)
+	tree.Compute(800, 600)
+
+	// Centered: X = (800 - 300) / 2 = 250, Y = (600 - 200) / 2 = 200
+	assertRect(t, tree, modal, "centered-modal", 250, 200, 300, 200)
+}
+
+// ---------------------------------------------------------------------------
+// 14. CSS Grid Auto Track Content Sizing
+// ---------------------------------------------------------------------------
+
+func TestGridAutoTracksContentSized(t *testing.T) {
+	tree := NewTree()
+
+	grid := tree.NewNode(Style{
+		Display: DisplayGrid,
+		Width:   Px(400),
+		Height:  Px(100),
+		GridTemplateColumns: []Dimension{
+			Auto(),
+			Auto(),
+		},
+	})
+
+	badge := tree.NewNode(Style{
+		Width:  Px(60),
+		Height: Px(40),
+	})
+	card := tree.NewNode(Style{
+		Width:  Px(200),
+		Height: Px(40),
+	})
+
+	tree.AddChild(grid, badge)
+	tree.AddChild(grid, card)
+
+	tree.Compute(400, 100)
+
+	// Auto tracks size to fit items: Col 0 = 60px, Col 1 = 200px
+	assertRect(t, tree, badge, "grid-badge-auto-track", 0, 0, 60, 40)
+	assertRect(t, tree, card, "grid-card-auto-track", 60, 0, 200, 40)
+}
+
+// ---------------------------------------------------------------------------
+// 15. min-width: 0 Explicit Override Allowing Flex Item Shrinking
+// ---------------------------------------------------------------------------
+
+func TestFlexItemExplicitMinZeroTextTruncation(t *testing.T) {
+	tree := NewTree()
+
+	root := tree.NewNode(Style{
+		Display:       DisplayFlex,
+		FlexDirection: FlexDirectionRow,
+		Width:         Px(200),
+		Height:        Px(50),
+	})
+
+	// flex_item has an inner child of 300px, but min-width: 0 allows it to shrink
+	flexItem := tree.NewNode(Style{
+		Display:    DisplayFlex,
+		Width:      Px(200),
+		Height:     Px(50),
+		MinWidth:   Px(0),
+		FlexShrink: 1,
+	})
+	inner := tree.NewNode(Style{
+		Width:  Px(300),
+		Height: Px(50),
+	})
+	tree.AddChild(flexItem, inner)
+
+	other := tree.NewNode(Style{
+		Width:      Px(100),
+		Height:     Px(50),
+		FlexShrink: 1,
+	})
+
+	tree.AddChild(root, flexItem)
+	tree.AddChild(root, other)
+
+	tree.Compute(200, 50)
+
+	// Available: 200. Total flex basis = 200 + 100 = 300.
+	// Overflows by 100. Shrink factors weighted: 200*1 + 100*1 = 300.
+	// flexItem shrinks by 100 * (200/300) = 66.67 -> width 133.33.
+	// other shrinks by 100 * (100/300) = 33.33 -> width 66.67.
+	assertRect(t, tree, flexItem, "flex-item-shrunk-below-content", 0, 0, 133.33, 50)
+	assertRect(t, tree, other, "other-item", 133.33, 0, 66.67, 50)
+}
+
+// ---------------------------------------------------------------------------
+// 16. Grid Item Margins & Auto-Margin Centering (W3C Grid §10.1)
+// ---------------------------------------------------------------------------
+
+func TestGridItemMarginsAndCentering(t *testing.T) {
+	tree := NewTree()
+
+	grid := tree.NewNode(Style{
+		Display:             DisplayGrid,
+		Width:               Px(200),
+		Height:              Px(200),
+		GridTemplateColumns: []Dimension{Px(200)},
+		GridTemplateRows:    []Dimension{Px(200)},
+	})
+
+	// Fixed margins
+	item1 := tree.NewNode(Style{
+		Width:  Px(100),
+		Height: Px(100),
+		Margin: EdgesPx(15, 20, 25, 10), // Top 15, Right 20, Bottom 25, Left 10
+	})
+
+	tree.AddChild(grid, item1)
+	tree.Compute(200, 200)
+
+	// In 200x200 cell, item at (10, 15) with size 100x100
+	assertRect(t, tree, item1, "grid-item-margins", 10, 15, 100, 100)
+
+	// Test margin: auto centering in Grid
+	tree2 := NewTree()
+	grid2 := tree2.NewNode(Style{
+		Display:             DisplayGrid,
+		Width:               Px(200),
+		Height:              Px(200),
+		GridTemplateColumns: []Dimension{Px(200)},
+		GridTemplateRows:    []Dimension{Px(200)},
+	})
+	item2 := tree2.NewNode(Style{
+		Width:  Px(100),
+		Height: Px(100),
+		Margin: Edges{Left: Auto(), Right: Auto(), Top: Auto(), Bottom: Auto()},
+	})
+	tree2.AddChild(grid2, item2)
+	tree2.Compute(200, 200)
+
+	// Auto margins center: X = (200 - 100)/2 = 50, Y = (200 - 100)/2 = 50
+	assertRect(t, tree2, item2, "grid-item-margin-auto-center", 50, 50, 100, 100)
+
+	// Test align/justify center with margins
+	tree3 := NewTree()
+	grid3 := tree3.NewNode(Style{
+		Display:             DisplayGrid,
+		Width:               Px(200),
+		Height:              Px(200),
+		GridTemplateColumns: []Dimension{Px(200)},
+		GridTemplateRows:    []Dimension{Px(200)},
+		AlignItems:          AlignCenter,
+		JustifyItems:        AlignCenter,
+	})
+	item3 := tree3.NewNode(Style{
+		Width:  Px(100),
+		Height: Px(100),
+		Margin: EdgesPx(15, 20, 25, 10),
+	})
+	tree3.AddChild(grid3, item3)
+	tree3.Compute(200, 200)
+
+	// Center with margins: X = 10 + (200 - 30 - 100)*0.5 = 45, Y = 15 + (200 - 40 - 100)*0.5 = 45
+	assertRect(t, tree3, item3, "grid-item-center-with-margins", 45, 45, 100, 100)
+}
+
+// ---------------------------------------------------------------------------
+// 17. Grid Item Aspect Ratio
+// ---------------------------------------------------------------------------
+
+func TestGridItemAspectRatio(t *testing.T) {
+	tree := NewTree()
+
+	grid := tree.NewNode(Style{
+		Display:             DisplayGrid,
+		Width:               Px(400),
+		Height:              Px(300),
+		GridTemplateColumns: []Dimension{Px(200), Px(200)},
+		GridTemplateRows:    []Dimension{Px(300)},
+		AlignItems:          AlignFlexStart,
+	})
+
+	// W=160, H=auto, AR=16/9 -> H=90
+	item1 := tree.NewNode(Style{
+		Width:       Px(160),
+		Height:      Auto(),
+		AspectRatio: 16.0 / 9.0,
+	})
+
+	// H=90, W=auto, AR=16/9 -> W=160
+	item2 := tree.NewNode(Style{
+		Width:       Auto(),
+		Height:      Px(90),
+		AspectRatio: 16.0 / 9.0,
+	})
+
+	tree.AddChild(grid, item1)
+	tree.AddChild(grid, item2)
+	tree.Compute(400, 300)
+
+	assertRect(t, tree, item1, "grid-aspect-ratio-height-from-width", 0, 0, 160, 90)
+	assertRect(t, tree, item2, "grid-aspect-ratio-width-from-height", 200, 0, 160, 90)
+}
+
+// ---------------------------------------------------------------------------
+// 18. Grid Item Position Relative Offset
+// ---------------------------------------------------------------------------
+
+func TestGridItemPositionRelativeOffset(t *testing.T) {
+	tree := NewTree()
+
+	grid := tree.NewNode(Style{
+		Display:             DisplayGrid,
+		Width:               Px(200),
+		Height:              Px(200),
+		GridTemplateColumns: []Dimension{Px(200)},
+		GridTemplateRows:    []Dimension{Px(200)},
+	})
+
+	item := tree.NewNode(Style{
+		Position: PositionRelative,
+		Inset:    Edges{Left: Px(15), Top: Px(25), Right: Auto(), Bottom: Auto()},
+		Width:    Px(100),
+		Height:   Px(100),
+	})
+
+	tree.AddChild(grid, item)
+	tree.Compute(200, 200)
+
+	assertRect(t, tree, item, "grid-item-relative-offset", 15, 25, 100, 100)
+}
+
+// ---------------------------------------------------------------------------
+// 19. FlexBasis Priority Over AspectRatio
+// ---------------------------------------------------------------------------
+
+func TestFlexBasisPriorityOverAspectRatio(t *testing.T) {
+	tree := NewTree()
+
+	root := tree.NewNode(Style{
+		Display: DisplayFlex,
+		Width:   Px(500),
+		Height:  Px(200),
+	})
+
+	// FlexBasis is 200px, which must take precedence over Height(100)*AR(16/9)=177.7px
+	item := tree.NewNode(Style{
+		FlexBasis:   Px(200),
+		Width:       Auto(),
+		Height:      Px(100),
+		AspectRatio: 16.0 / 9.0,
+		FlexGrow:    0,
+		FlexShrink:  0,
+	})
+
+	tree.AddChild(root, item)
+	tree.Compute(500, 200)
+
+	assertRect(t, tree, item, "flex-basis-priority", 0, 0, 200, 100)
+}
+

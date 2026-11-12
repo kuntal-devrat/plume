@@ -35,7 +35,12 @@ type Dimension struct {
 // Auto returns a [Dimension] with [DimensionAuto] kind, meaning the layout
 // algorithm determines the size automatically.
 func Auto() Dimension {
-	return Dimension{Kind: DimensionAuto}
+	return Dimension{Kind: DimensionAuto, Value: -1}
+}
+
+// isAutoMargin reports whether d represents an explicitly set auto margin.
+func isAutoMargin(d Dimension) bool {
+	return d.Kind == DimensionAuto && d.Value != 0
 }
 
 // Px returns a [Dimension] with an absolute pixel value.

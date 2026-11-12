@@ -279,8 +279,8 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 	}
 
 	// 5. Track Sizing Algorithm (Columns & Rows)
-	t.colSizes = t.resolveTracks(node.Style.GridTemplateColumns, totalCols, contentWidth, colGap, t.colSizes)
-	t.rowSizes = t.resolveTracks(node.Style.GridTemplateRows, totalRows, contentHeight, rowGap, t.rowSizes)
+	t.colSizes = t.resolveTracks(node.Style.GridTemplateColumns, totalCols, contentWidth, colGap, true, t.colSizes)
+	t.rowSizes = t.resolveTracks(node.Style.GridTemplateRows, totalRows, contentHeight, rowGap, false, t.rowSizes)
 
 	// Update container height if Auto
 	if node.Style.Height.Kind == DimensionAuto && contentHeight <= 0 {
@@ -336,6 +336,9 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 
 		// Alignment within grid cell
 		justify := node.Style.AlignItems
+		if node.Style.JustifyItems != 0 {
+			justify = node.Style.JustifyItems
+		}
 		if c.Style.JustifySelf != AlignSelfAuto {
 			justify = AlignItems(c.Style.JustifySelf)
 		}
@@ -345,46 +348,131 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			align = AlignItems(c.Style.AlignSelf)
 		}
 
+		// Resolve margins
+		var mLeft, mRight, mTop, mBottom float32
+		isAutoMLeft := isAutoMargin(c.Style.Margin.Left)
+		isAutoMRight := isAutoMargin(c.Style.Margin.Right)
+		isAutoMTop := isAutoMargin(c.Style.Margin.Top)
+		isAutoMBottom := isAutoMargin(c.Style.Margin.Bottom)
+
+		if !isAutoMLeft {
+			mLeft = t.resolveDimensionOrZero(c.Style.Margin.Left, cellW)
+		}
+		if !isAutoMRight {
+			mRight = t.resolveDimensionOrZero(c.Style.Margin.Right, cellW)
+		}
+		if !isAutoMTop {
+			mTop = t.resolveDimensionOrZero(c.Style.Margin.Top, cellH)
+		}
+		if !isAutoMBottom {
+			mBottom = t.resolveDimensionOrZero(c.Style.Margin.Bottom, cellH)
+		}
+
+		availW := cellW - mLeft - mRight
+		if availW < 0 {
+			availW = 0
+		}
+		availH := cellH - mTop - mBottom
+		if availH < 0 {
+			availH = 0
+		}
+
 		// Item resolved size
-		itemW := cellW
+		itemW := availW
 		if c.Style.Width.Kind != DimensionAuto {
-			itemW = t.resolveDimensionOrZero(c.Style.Width, cellW)
+			itemW = t.resolveDimensionOrZero(c.Style.Width, availW)
 		}
-		itemW = t.clampSize(itemW, c.Style.MinWidth, c.Style.MaxWidth, cellW)
+		itemW = t.clampSize(itemW, c.Style.MinWidth, c.Style.MaxWidth, availW)
 
-		itemH := cellH
+		itemH := availH
 		if c.Style.Height.Kind != DimensionAuto {
-			itemH = t.resolveDimensionOrZero(c.Style.Height, cellH)
+			itemH = t.resolveDimensionOrZero(c.Style.Height, availH)
 		}
-		itemH = t.clampSize(itemH, c.Style.MinHeight, c.Style.MaxHeight, cellH)
+		itemH = t.clampSize(itemH, c.Style.MinHeight, c.Style.MaxHeight, availH)
 
-		// Item offsets
+		// AspectRatio handling
+		if c.Style.AspectRatio > 0 {
+			if c.Style.Width.Kind != DimensionAuto && c.Style.Height.Kind == DimensionAuto {
+				itemH = itemW / c.Style.AspectRatio
+				itemH = t.clampSize(itemH, c.Style.MinHeight, c.Style.MaxHeight, availH)
+			} else if c.Style.Height.Kind != DimensionAuto && c.Style.Width.Kind == DimensionAuto {
+				itemW = itemH * c.Style.AspectRatio
+				itemW = t.clampSize(itemW, c.Style.MinWidth, c.Style.MaxWidth, availW)
+			} else if c.Style.Width.Kind == DimensionAuto && c.Style.Height.Kind == DimensionAuto {
+				if availW > 0 && availH > 0 {
+					if availW/availH > c.Style.AspectRatio {
+						itemH = availH
+						itemW = itemH * c.Style.AspectRatio
+					} else {
+						itemW = availW
+						itemH = itemW / c.Style.AspectRatio
+					}
+				}
+			}
+		}
+
+		// Stretch sizing adjustment when width/height is Auto and not auto margin
+		if justify == AlignStretch && c.Style.Width.Kind == DimensionAuto && !isAutoMLeft && !isAutoMRight && c.Style.AspectRatio == 0 {
+			itemW = availW
+		}
+		if align == AlignStretch && c.Style.Height.Kind == DimensionAuto && !isAutoMTop && !isAutoMBottom && c.Style.AspectRatio == 0 {
+			itemH = availH
+		}
+
+		// Item offsets (Horizontal)
 		itemX := cellX
-		switch justify {
-		case AlignStretch:
-			if c.Style.Width.Kind == DimensionAuto {
-				itemW = cellW
-			}
-		case AlignFlexStart:
-			itemX = cellX
-		case AlignFlexEnd:
-			itemX = cellX + cellW - itemW
-		case AlignCenter:
+		if isAutoMLeft && isAutoMRight {
 			itemX = cellX + (cellW-itemW)*0.5
+		} else if isAutoMLeft {
+			itemX = cellX + cellW - itemW - mRight
+		} else if isAutoMRight {
+			itemX = cellX + mLeft
+		} else {
+			switch justify {
+			case AlignStretch, AlignFlexStart:
+				itemX = cellX + mLeft
+			case AlignFlexEnd:
+				itemX = cellX + cellW - itemW - mRight
+			case AlignCenter:
+				itemX = cellX + mLeft + (availW-itemW)*0.5
+			}
 		}
 
+		// Item offsets (Vertical)
 		itemY := cellY
-		switch align {
-		case AlignStretch:
-			if c.Style.Height.Kind == DimensionAuto {
-				itemH = cellH
-			}
-		case AlignFlexStart:
-			itemY = cellY
-		case AlignFlexEnd:
-			itemY = cellY + cellH - itemH
-		case AlignCenter:
+		if isAutoMTop && isAutoMBottom {
 			itemY = cellY + (cellH-itemH)*0.5
+		} else if isAutoMTop {
+			itemY = cellY + cellH - itemH - mBottom
+		} else if isAutoMBottom {
+			itemY = cellY + mTop
+		} else {
+			switch align {
+			case AlignStretch, AlignFlexStart:
+				itemY = cellY + mTop
+			case AlignFlexEnd:
+				itemY = cellY + cellH - itemH - mBottom
+			case AlignCenter:
+				itemY = cellY + mTop + (availH-itemH)*0.5
+			}
+		}
+
+		// Relative positioning offsets
+		if c.Style.Position == PositionRelative {
+			top := t.resolveDimensionOrZero(c.Style.Inset.Top, parentHeight)
+			bottom := t.resolveDimensionOrZero(c.Style.Inset.Bottom, parentHeight)
+			left := t.resolveDimensionOrZero(c.Style.Inset.Left, parentWidth)
+			right := t.resolveDimensionOrZero(c.Style.Inset.Right, parentWidth)
+			if c.Style.Inset.Left.Kind != DimensionAuto {
+				itemX += left
+			} else if c.Style.Inset.Right.Kind != DimensionAuto {
+				itemX -= right
+			}
+			if c.Style.Inset.Top.Kind != DimensionAuto {
+				itemY += top
+			} else if c.Style.Inset.Bottom.Kind != DimensionAuto {
+				itemY -= bottom
+			}
 		}
 
 		c.Computed.X = itemX
@@ -407,7 +495,7 @@ func (t *Tree) layoutGrid(id NodeID, contentWidth, contentHeight, padLeft, padTo
 }
 
 // resolveTracks computes the pixel sizes of grid tracks.
-func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSize, gap float32, dst []float32) []float32 {
+func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSize, gap float32, isCol bool, dst []float32) []float32 {
 	if cap(dst) < totalTracks {
 		dst = make([]float32, totalTracks)
 	} else {
@@ -431,7 +519,7 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 	remainingSpace := availSpace
 	totalFr := float32(0)
 
-	// Pass 1: Resolve fixed and percentage tracks
+	// Pass 1: Resolve fixed, percentage, and auto-content tracks
 	for i := 0; i < totalTracks; i++ {
 		var dim Dimension
 		if i < len(templates) {
@@ -452,8 +540,47 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 		case DimensionFr:
 			totalFr += dim.Value
 		case DimensionAuto, DimensionMinContent, DimensionMaxContent:
-			// Auto tracks without explicit fr or size default to flexible share
-			totalFr += 1.0
+			// Measure intrinsic content contribution of items in this track
+			var maxItemContent float32
+			for _, it := range t.gridItems {
+				span := it.colSpan
+				start := it.colStart
+				if !isCol {
+					span = it.rowSpan
+					start = it.rowStart
+				}
+				if span == 1 && start == i {
+					c := &t.nodes[it.node]
+					var sz float32
+					if isCol {
+						if c.Style.Width.Kind == DimensionPx {
+							sz = c.Style.Width.Value
+						} else if c.Style.Width.Kind == DimensionPercent {
+							sz = containerSize * c.Style.Width.Value / 100.0
+						} else {
+							sz = t.computeMinContentSize(it.node, true, containerSize, 0)
+						}
+					} else {
+						if c.Style.Height.Kind == DimensionPx {
+							sz = c.Style.Height.Value
+						} else if c.Style.Height.Kind == DimensionPercent {
+							sz = containerSize * c.Style.Height.Value / 100.0
+						} else {
+							sz = t.computeMinContentSize(it.node, false, 0, containerSize)
+						}
+					}
+					if sz > maxItemContent {
+						maxItemContent = sz
+					}
+				}
+			}
+
+			if maxItemContent > 0 {
+				dst[i] = maxItemContent
+				remainingSpace -= maxItemContent
+			} else {
+				totalFr += 1.0
+			}
 		}
 	}
 
@@ -472,7 +599,9 @@ func (t *Tree) resolveTracks(templates []Dimension, totalTracks int, containerSi
 			case DimensionFr:
 				dst[i] = dim.Value * frUnit
 			case DimensionAuto, DimensionMinContent, DimensionMaxContent:
-				dst[i] = 1.0 * frUnit
+				if dst[i] == 0 {
+					dst[i] = 1.0 * frUnit
+				}
 			}
 		}
 	}

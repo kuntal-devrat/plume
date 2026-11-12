@@ -258,6 +258,7 @@ type Style struct {
 	GridAutoFlow        GridAutoFlow
 	RowGap              Dimension
 	ColumnGap           Dimension
+	JustifyItems        AlignItems // Default inline-axis alignment for all grid items
 
 	// Grid Item properties
 	GridColumnStart int16 // 1-based start line (0 = auto)
