@@ -233,12 +233,29 @@ const (
 )
 
 // ---------------------------------------------------------------------------
+// BoxSizing
+// ---------------------------------------------------------------------------
+
+// BoxSizing specifies whether width and height include padding and borders.
+type BoxSizing uint8
+
+const (
+	// BoxSizingBorderBox (default) includes padding and border in width/height.
+	BoxSizingBorderBox BoxSizing = iota
+	// BoxSizingContentBox excludes padding and border from width/height.
+	BoxSizingContentBox
+)
+
+// ---------------------------------------------------------------------------
 // Style
 // ---------------------------------------------------------------------------
 
 // Style holds all CSS Flexbox and Grid properties for a layout node. Use
 // [DefaultStyle] to get a value pre-filled with sensible CSS defaults.
 type Style struct {
+	// Sizing model
+	BoxSizing BoxSizing
+
 	// Positioning
 	Position PositionType
 	Inset    Edges // Top, Right, Bottom, Left offsets
@@ -281,7 +298,11 @@ type Style struct {
 	// Grid Container properties
 	GridTemplateColumns []Dimension
 	GridTemplateRows    []Dimension
+	GridAutoColumns     []Dimension
+	GridAutoRows        []Dimension
 	GridAutoFlow        GridAutoFlow
+	AutoFitCols         bool
+	AutoFitRows         bool
 	RowGap              Dimension
 	ColumnGap           Dimension
 	JustifyItems        AlignItems // Default inline-axis alignment for all grid items

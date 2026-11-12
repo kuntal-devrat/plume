@@ -69,12 +69,15 @@ type flexLine struct {
 
 // gridItemScratch is scratch data kept per grid item during grid layout computation.
 type gridItemScratch struct {
-	node      NodeID
-	colStart  int
-	colSpan   int
-	rowStart  int
-	rowSpan   int
-	definite  bool
+	node         NodeID
+	colStart     int
+	colSpan      int
+	rowStart     int
+	rowSpan      int
+	hasColStart  bool
+	hasRowStart  bool
+	definite     bool
+	baselineShim float32
 }
 
 // Tree is a flat, arena-allocated layout tree. Nodes are stored in a

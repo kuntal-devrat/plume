@@ -94,7 +94,7 @@ func parseWPTDimension(val string) Dimension {
 	return Auto()
 }
 
-func parseWPTTrackList(val string) []Dimension {
+func parseWPTTrackList(val string, getAttr func(string) string, isCol bool) []Dimension {
 	val = strings.TrimSpace(val)
 	if val == "" || val == "none" {
 		return nil
@@ -123,6 +123,77 @@ func parseWPTTrackList(val string) []Dimension {
 	}
 	var res []Dimension
 	for _, p := range parts {
+		if strings.HasPrefix(p, "repeat(") && strings.HasSuffix(p, ")") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(p, "repeat("), ")")
+			var args []string
+			var aCur strings.Builder
+			aDepth := 0
+			for _, r := range inner {
+				if r == '(' {
+					aDepth++
+					aCur.WriteRune(r)
+				} else if r == ')' {
+					aDepth--
+					aCur.WriteRune(r)
+				} else if r == ',' && aDepth == 0 {
+					args = append(args, strings.TrimSpace(aCur.String()))
+					aCur.Reset()
+				} else {
+					aCur.WriteRune(r)
+				}
+			}
+			if aCur.Len() > 0 {
+				args = append(args, strings.TrimSpace(aCur.String()))
+			}
+			if len(args) >= 2 {
+				countStr := args[0]
+				trackSpec := args[1]
+				trackDim := parseWPTDimension(trackSpec)
+				var count int
+				if n, err := strconv.Atoi(countStr); err == nil {
+					count = n
+				} else if countStr == "auto-fill" || countStr == "auto-fit" {
+					var avail float32
+					if isCol {
+						wStr := getAttr("width")
+						if strings.HasSuffix(wStr, "px") {
+							f, _ := strconv.ParseFloat(strings.TrimSuffix(wStr, "px"), 32)
+							avail = float32(f)
+						} else {
+							avail = 710
+						}
+						for _, prev := range res {
+							if prev.Kind == DimensionPx {
+								avail -= prev.Value
+							}
+						}
+					}
+					trackMin := float32(40)
+					if trackDim.Kind == DimensionPx {
+						trackMin = trackDim.Value
+					} else if trackDim.Kind == DimensionMinMax && trackDim.Min != nil && trackDim.Min.Kind == DimensionPx {
+						trackMin = trackDim.Min.Value
+					}
+					var gapVal float32
+					gapStr := getAttr("gap")
+					if isCol && getAttr("column-gap") != "" {
+						gapStr = getAttr("column-gap")
+					}
+					if strings.HasSuffix(gapStr, "px") {
+						f, _ := strconv.ParseFloat(strings.TrimSuffix(gapStr, "px"), 32)
+						gapVal = float32(f)
+					}
+					count = int((avail + gapVal) / (trackMin + gapVal))
+					if count < 1 {
+						count = 1
+					}
+				}
+				for k := 0; k < count; k++ {
+					res = append(res, trackDim)
+				}
+				continue
+			}
+		}
 		res = append(res, parseWPTDimension(p))
 	}
 	return res
@@ -151,6 +222,19 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		s.Display = DisplayBlock
 	case "none":
 		s.Display = DisplayNone
+	default:
+		if getAttr("grid-template-columns") != "" || getAttr("grid-template-rows") != "" {
+			s.Display = DisplayGrid
+		} else {
+			for _, ch := range node.Children {
+				for _, a := range ch.Attrs {
+					if a.Name.Local == "display" && a.Value == "grid" {
+						s.Display = DisplayBlock
+						break
+					}
+				}
+			}
+		}
 	}
 
 	// Position
@@ -205,6 +289,12 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		s.JustifyContent = JustifySpaceAround
 	case "space-evenly":
 		s.JustifyContent = JustifySpaceEvenly
+	case "stretch":
+		s.JustifyContent = JustifyStretch
+	default:
+		if s.Display == DisplayGrid {
+			s.JustifyContent = JustifyStretch
+		}
 	}
 
 	// Align Items
@@ -334,6 +424,8 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 	}
 	if v := getAttr("flex-basis"); v != "" {
 		switch v {
+		case "stretch":
+			s.FlexBasis = Dimension{Kind: DimensionPercent, Value: 100}
 		case "content":
 			s.FlexBasis = Dimension{Kind: DimensionContent}
 		case "min-content":
@@ -451,10 +543,34 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 
 	// Grid
 	if v := getAttr("grid-template-columns"); v != "" {
-		s.GridTemplateColumns = parseWPTTrackList(v)
+		s.GridTemplateColumns = parseWPTTrackList(v, getAttr, true)
+		if strings.Contains(v, "auto-fit") {
+			s.AutoFitCols = true
+		}
 	}
 	if v := getAttr("grid-template-rows"); v != "" {
-		s.GridTemplateRows = parseWPTTrackList(v)
+		s.GridTemplateRows = parseWPTTrackList(v, getAttr, false)
+		if strings.Contains(v, "auto-fit") {
+			s.AutoFitRows = true
+		}
+	}
+	if v := getAttr("grid-auto-columns"); v != "" {
+		s.GridAutoColumns = parseWPTTrackList(v, getAttr, true)
+	}
+	if v := getAttr("grid-auto-rows"); v != "" {
+		s.GridAutoRows = parseWPTTrackList(v, getAttr, false)
+	}
+	if v := getAttr("grid-auto-flow"); v != "" {
+		switch v {
+		case "row":
+			s.GridAutoFlow = GridAutoFlowRow
+		case "column":
+			s.GridAutoFlow = GridAutoFlowColumn
+		case "row dense":
+			s.GridAutoFlow = GridAutoFlowRowDense
+		case "column dense":
+			s.GridAutoFlow = GridAutoFlowColumnDense
+		}
 	}
 	parseSpan := func(v string) (val int16, isSpan bool) {
 		v = strings.TrimSpace(v)
@@ -502,30 +618,11 @@ func parseWPTStyle(node *xmlGenericNode) Style {
 		}
 	}
 
-	// In content-box (CSS default), explicit width/height properties apply to the content area,
-	// so the outer box dimensions equal content + padding + border.
 	boxSizing := getAttr("box-sizing")
-	if boxSizing == "" || boxSizing == "content-box" {
-		padHoriz := s.Padding.Left.Value + s.Padding.Right.Value
-		padVert := s.Padding.Top.Value + s.Padding.Bottom.Value
-		if s.Width.Kind == DimensionPx {
-			s.Width.Value += padHoriz
-		}
-		if s.Height.Kind == DimensionPx {
-			s.Height.Value += padVert
-		}
-		if s.MinWidth.Kind == DimensionPx {
-			s.MinWidth.Value += padHoriz
-		}
-		if s.MinHeight.Kind == DimensionPx {
-			s.MinHeight.Value += padVert
-		}
-		if s.MaxWidth.Kind == DimensionPx {
-			s.MaxWidth.Value += padHoriz
-		}
-		if s.MaxHeight.Kind == DimensionPx {
-			s.MaxHeight.Value += padVert
-		}
+	if boxSizing == "content-box" || boxSizing == "" {
+		s.BoxSizing = BoxSizingContentBox
+	} else if boxSizing == "border-box" {
+		s.BoxSizing = BoxSizingBorderBox
 	}
 
 	return s

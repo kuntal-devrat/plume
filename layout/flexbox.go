@@ -29,11 +29,23 @@ func (t *Tree) computeNode(id NodeID, parentWidth, parentHeight float32) {
 	width := t.resolveDimension(node.Style.Width, parentWidth)
 	height := t.resolveDimension(node.Style.Height, parentHeight)
 
-	// Resolve padding
-	padTop := t.resolveDimensionOrZero(node.Style.Padding.Top, parentHeight)
+	// Resolve padding (in CSS, all 4 sides of percentage padding resolve against containing block width)
+	padTop := t.resolveDimensionOrZero(node.Style.Padding.Top, parentWidth)
 	padRight := t.resolveDimensionOrZero(node.Style.Padding.Right, parentWidth)
-	padBottom := t.resolveDimensionOrZero(node.Style.Padding.Bottom, parentHeight)
+	padBottom := t.resolveDimensionOrZero(node.Style.Padding.Bottom, parentWidth)
 	padLeft := t.resolveDimensionOrZero(node.Style.Padding.Left, parentWidth)
+
+	var boxPadHoriz, boxPadVert float32
+	if node.Style.BoxSizing == BoxSizingContentBox {
+		boxPadHoriz = padLeft + padRight
+		boxPadVert = padTop + padBottom
+	}
+	if width >= 0 {
+		width += boxPadHoriz
+	}
+	if height >= 0 {
+		height += boxPadVert
+	}
 
 	// Call intrinsic measure func if registered and dimensions are auto
 	if int(id) < len(t.measureFuncs) && t.measureFuncs[id] != nil {
@@ -109,8 +121,8 @@ func (t *Tree) computeNode(id NodeID, parentWidth, parentHeight float32) {
 	}
 
 	// Apply min/max constraints to the overall node size.
-	width = t.clampSize(width, node.Style.MinWidth, node.Style.MaxWidth, parentWidth)
-	height = t.clampSize(height, node.Style.MinHeight, node.Style.MaxHeight, parentHeight)
+	width = t.clampNodeSize(width, node.Style.MinWidth, node.Style.MaxWidth, parentWidth, boxPadHoriz)
+	height = t.clampNodeSize(height, node.Style.MinHeight, node.Style.MaxHeight, parentHeight, boxPadVert)
 
 	// Recompute content box after clamping.
 	contentWidth = width - padLeft - padRight
@@ -152,7 +164,12 @@ func (t *Tree) layoutBlock(id NodeID, cw, ch, padL, padT float32) {
 	for child != InvalidNode {
 		c := &t.nodes[child]
 		if c.Style.Display != DisplayNone {
-			t.computeNode(child, cw, ch)
+			childW := cw
+			if c.Style.BoxSizing == BoxSizingContentBox && c.Style.Width.Kind == DimensionPercent {
+				padH := t.resolveDimensionOrZero(c.Style.Padding.Left, cw) + t.resolveDimensionOrZero(c.Style.Padding.Right, cw)
+				childW = cw - padH
+			}
+			t.computeNode(child, childW, ch)
 			c.Computed.X = padL
 			c.Computed.Y = yOffset
 			yOffset += c.Computed.Height
@@ -233,7 +250,21 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 		cs := &t.nodes[it.node].Style
 
 		// Resolve flex basis.
-		basis := t.resolveFlexBasis(it.node, cs, isRow, mainSize)
+		basis := t.resolveFlexBasis(it.node, cs, isRow, mainSize, crossSize)
+
+		// Main axis padding for content-box clamping
+		var boxPadMain float32
+		if cs.BoxSizing == BoxSizingContentBox {
+			cbW := crossSize
+			if isRow {
+				cbW = mainSize
+			}
+			if isRow {
+				boxPadMain = t.resolveDimensionOrZero(cs.Padding.Left, cbW) + t.resolveDimensionOrZero(cs.Padding.Right, cbW)
+			} else {
+				boxPadMain = t.resolveDimensionOrZero(cs.Padding.Top, cbW) + t.resolveDimensionOrZero(cs.Padding.Bottom, cbW)
+			}
+		}
 
 		// Resolve margins on the main axis for this item.
 		var marginMainStart, marginMainEnd float32
@@ -241,16 +272,16 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			marginMainStart = t.resolveDimensionOrZero(cs.Margin.Left, parentWidth)
 			marginMainEnd = t.resolveDimensionOrZero(cs.Margin.Right, parentWidth)
 		} else {
-			marginMainStart = t.resolveDimensionOrZero(cs.Margin.Top, parentHeight)
-			marginMainEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentHeight)
+			marginMainStart = t.resolveDimensionOrZero(cs.Margin.Top, parentWidth)
+			marginMainEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentWidth)
 		}
 
 		// Apply min/max constraints on the main axis.
 		hypo := basis
 		if isRow {
-			hypo = t.clampSize(hypo, cs.MinWidth, cs.MaxWidth, mainSize)
+			hypo = t.clampNodeSize(hypo, cs.MinWidth, cs.MaxWidth, mainSize, boxPadMain)
 		} else {
-			hypo = t.clampSize(hypo, cs.MinHeight, cs.MaxHeight, mainSize)
+			hypo = t.clampNodeSize(hypo, cs.MinHeight, cs.MaxHeight, mainSize, boxPadMain)
 		}
 		if hypo < 0 {
 			hypo = 0
@@ -360,11 +391,15 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 
 				violationFound := false
 				if freeSpace > 0 && unfrozenGrow > 0 {
+					growDiv := unfrozenGrow
+					if growDiv < 1.0 {
+						growDiv = 1.0
+					}
 					for i := range lineItems {
 						if frozen[i] {
 							continue
 						}
-						target := lineItems[i].flexBasis + freeSpace*(lineItems[i].flexGrow/unfrozenGrow)
+						target := lineItems[i].flexBasis + freeSpace*(lineItems[i].flexGrow/growDiv)
 						minLimit := t.computeMinContentSize(lineItems[i].node, isRow, mainSize, crossSize)
 						maxLimit := t.computeMaxContentSize(lineItems[i].node, isRow, mainSize)
 						if target < minLimit {
@@ -379,7 +414,16 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 						lineItems[i].targetMain = target
 					}
 				} else if freeSpace < 0 && unfrozenWeightedShrink > 0 {
+					var unfrozenShrinkSum float32
+					for i := range lineItems {
+						if !frozen[i] {
+							unfrozenShrinkSum += lineItems[i].flexShrink
+						}
+					}
 					overflow := -freeSpace
+					if unfrozenShrinkSum < 1.0 {
+						overflow *= unfrozenShrinkSum
+					}
 					for i := range lineItems {
 						if frozen[i] {
 							continue
@@ -523,12 +567,12 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				if isAutoMargin(cs.Margin.Top) {
 					marginMainStart = autoMarginShare
 				} else {
-					marginMainStart = t.resolveDimensionOrZero(cs.Margin.Top, parentHeight)
+					marginMainStart = t.resolveDimensionOrZero(cs.Margin.Top, parentWidth)
 				}
 				if isAutoMargin(cs.Margin.Bottom) {
 					marginMainEnd = autoMarginShare
 				} else {
-					marginMainEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentHeight)
+					marginMainEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentWidth)
 				}
 			}
 			lineItems[i].mainOffset = offset + marginMainStart
@@ -591,8 +635,8 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			// Add cross-axis margins.
 			var marginCrossStart, marginCrossEnd float32
 			if isRow {
-				marginCrossStart = t.resolveDimensionOrZero(cs.Margin.Top, parentHeight)
-				marginCrossEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentHeight)
+				marginCrossStart = t.resolveDimensionOrZero(cs.Margin.Top, parentWidth)
+				marginCrossEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentWidth)
 			} else {
 				marginCrossStart = t.resolveDimensionOrZero(cs.Margin.Left, parentWidth)
 				marginCrossEnd = t.resolveDimensionOrZero(cs.Margin.Right, parentWidth)
@@ -777,12 +821,12 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				if isAutoMargin(cs.Margin.Top) {
 					hasAutoCrossStart = true
 				} else {
-					marginCrossStart = t.resolveDimensionOrZero(cs.Margin.Top, parentHeight)
+					marginCrossStart = t.resolveDimensionOrZero(cs.Margin.Top, parentWidth)
 				}
 				if isAutoMargin(cs.Margin.Bottom) {
 					hasAutoCrossEnd = true
 				} else {
-					marginCrossEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentHeight)
+					marginCrossEnd = t.resolveDimensionOrZero(cs.Margin.Bottom, parentWidth)
 				}
 			} else {
 				if isAutoMargin(cs.Margin.Left) {
@@ -817,7 +861,23 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				switch align {
 				case AlignStretch:
 					if cs.AspectRatio == 0 && (lineItems[i].crossSize == 0 || (isRow && cs.Height.Kind == DimensionAuto && availCross > 0) || (!isRow && cs.Width.Kind == DimensionAuto && availCross > 0)) {
-						lineItems[i].crossSize = availCross
+						var boxPadCross float32
+						if cs.BoxSizing == BoxSizingContentBox {
+							cbW := crossSize
+							if isRow {
+								cbW = mainSize
+							}
+							if isRow {
+								boxPadCross = t.resolveDimensionOrZero(cs.Padding.Top, cbW) + t.resolveDimensionOrZero(cs.Padding.Bottom, cbW)
+							} else {
+								boxPadCross = t.resolveDimensionOrZero(cs.Padding.Left, cbW) + t.resolveDimensionOrZero(cs.Padding.Right, cbW)
+							}
+						}
+						if isRow {
+							lineItems[i].crossSize = t.clampNodeSize(availCross, cs.MinHeight, cs.MaxHeight, crossSize, boxPadCross)
+						} else {
+							lineItems[i].crossSize = t.clampNodeSize(availCross, cs.MinWidth, cs.MaxWidth, crossSize, boxPadCross)
+						}
 						lineItems[i].crossOffset = marginCrossStart
 					} else {
 						lineItems[i].crossOffset = line.crossSize - lineItems[i].crossSize - marginCrossStart
@@ -839,7 +899,23 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 				switch align {
 				case AlignStretch:
 					if cs.AspectRatio == 0 && (lineItems[i].crossSize == 0 || (isRow && cs.Height.Kind == DimensionAuto && availCross > 0) || (!isRow && cs.Width.Kind == DimensionAuto && availCross > 0)) {
-						lineItems[i].crossSize = availCross
+						var boxPadCross float32
+						if cs.BoxSizing == BoxSizingContentBox {
+							cbW := crossSize
+							if isRow {
+								cbW = mainSize
+							}
+							if isRow {
+								boxPadCross = t.resolveDimensionOrZero(cs.Padding.Top, cbW) + t.resolveDimensionOrZero(cs.Padding.Bottom, cbW)
+							} else {
+								boxPadCross = t.resolveDimensionOrZero(cs.Padding.Left, cbW) + t.resolveDimensionOrZero(cs.Padding.Right, cbW)
+							}
+						}
+						if isRow {
+							lineItems[i].crossSize = t.clampNodeSize(availCross, cs.MinHeight, cs.MaxHeight, crossSize, boxPadCross)
+						} else {
+							lineItems[i].crossSize = t.clampNodeSize(availCross, cs.MinWidth, cs.MaxWidth, crossSize, boxPadCross)
+						}
 					}
 					lineItems[i].crossOffset = marginCrossStart
 				case AlignFlexStart:
@@ -899,10 +975,10 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 
 			// Relative positioning offsets
 			if cn.Style.Position == PositionRelative {
-				top := t.resolveDimensionOrZero(cn.Style.Inset.Top, parentHeight)
-				bottom := t.resolveDimensionOrZero(cn.Style.Inset.Bottom, parentHeight)
-				left := t.resolveDimensionOrZero(cn.Style.Inset.Left, parentWidth)
-				right := t.resolveDimensionOrZero(cn.Style.Inset.Right, parentWidth)
+				top := t.resolveDimensionOrZero(cn.Style.Inset.Top, contentHeight)
+				bottom := t.resolveDimensionOrZero(cn.Style.Inset.Bottom, contentHeight)
+				left := t.resolveDimensionOrZero(cn.Style.Inset.Left, contentWidth)
+				right := t.resolveDimensionOrZero(cn.Style.Inset.Right, contentWidth)
 				if cn.Style.Inset.Left.Kind != DimensionAuto {
 					x += left
 				} else if cn.Style.Inset.Right.Kind != DimensionAuto {
@@ -923,9 +999,9 @@ func (t *Tree) layoutFlex(id NodeID, contentWidth, contentHeight, padLeft, padTo
 			// --- 14. Recursive layout for flex container children ---
 			if cn.Style.Display == DisplayFlex && cn.FirstChild != InvalidNode {
 				padL := t.resolveDimensionOrZero(cn.Style.Padding.Left, w)
-				padT := t.resolveDimensionOrZero(cn.Style.Padding.Top, h)
+				padT := t.resolveDimensionOrZero(cn.Style.Padding.Top, w)
 				padR := t.resolveDimensionOrZero(cn.Style.Padding.Right, w)
-				padB := t.resolveDimensionOrZero(cn.Style.Padding.Bottom, h)
+				padB := t.resolveDimensionOrZero(cn.Style.Padding.Bottom, w)
 				cw := w - padL - padR
 				ch := h - padT - padB
 				if cw < 0 {
@@ -1090,10 +1166,11 @@ func (t *Tree) computeMinContentSize(node NodeID, isRow bool, mainSize, crossSiz
 		if cs.MinWidth.Kind == DimensionPx || cs.MinWidth.Kind == DimensionPercent {
 			return t.resolveDimensionOrZero(cs.MinWidth, mainSize)
 		}
+		pad := t.resolveDimensionOrZero(cs.Padding.Left, mainSize) + t.resolveDimensionOrZero(cs.Padding.Right, mainSize)
 		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
 			fn := t.measureFuncs[node]
 			mw, _ := fn(t, node, 0, MeasureAtMost, crossSize, MeasureAtMost)
-			return mw
+			return mw + pad
 		}
 		cNode := &t.nodes[node]
 		if cNode.FirstChild != InvalidNode {
@@ -1101,23 +1178,27 @@ func (t *Tree) computeMinContentSize(node NodeID, isRow bool, mainSize, crossSiz
 			for ch := cNode.FirstChild; ch != InvalidNode; ch = t.nodes[ch].NextSibling {
 				chS := &t.nodes[ch].Style
 				cw := t.resolveDimensionOrZero(chS.Width, mainSize)
+				if chS.Width.Kind == DimensionAuto {
+					cw = t.computeMinContentSize(ch, true, mainSize, crossSize)
+				}
 				mL := t.resolveDimensionOrZero(chS.Margin.Left, mainSize)
 				mR := t.resolveDimensionOrZero(chS.Margin.Right, mainSize)
 				if cw+mL+mR > maxChild {
 					maxChild = cw + mL + mR
 				}
 			}
-			return maxChild
+			return maxChild + pad
 		}
-		return 0
+		return pad
 	} else {
 		if cs.MinHeight.Kind == DimensionPx || cs.MinHeight.Kind == DimensionPercent {
 			return t.resolveDimensionOrZero(cs.MinHeight, mainSize)
 		}
+		pad := t.resolveDimensionOrZero(cs.Padding.Top, mainSize) + t.resolveDimensionOrZero(cs.Padding.Bottom, mainSize)
 		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
 			fn := t.measureFuncs[node]
 			_, mh := fn(t, node, crossSize, MeasureAtMost, 0, MeasureAtMost)
-			return mh
+			return mh + pad
 		}
 		cNode := &t.nodes[node]
 		if cNode.FirstChild != InvalidNode {
@@ -1125,15 +1206,18 @@ func (t *Tree) computeMinContentSize(node NodeID, isRow bool, mainSize, crossSiz
 			for ch := cNode.FirstChild; ch != InvalidNode; ch = t.nodes[ch].NextSibling {
 				chS := &t.nodes[ch].Style
 				chH := t.resolveDimensionOrZero(chS.Height, mainSize)
+				if chS.Height.Kind == DimensionAuto {
+					chH = t.computeMinContentSize(ch, false, mainSize, crossSize)
+				}
 				mT := t.resolveDimensionOrZero(chS.Margin.Top, mainSize)
 				mB := t.resolveDimensionOrZero(chS.Margin.Bottom, mainSize)
 				if chH+mT+mB > maxChild {
 					maxChild = chH + mT + mB
 				}
 			}
-			return maxChild
+			return maxChild + pad
 		}
-		return 0
+		return pad
 	}
 }
 
@@ -1160,30 +1244,63 @@ func (t *Tree) computeMaxContentSize(node NodeID, isRow bool, mainSize float32) 
 }
 
 // resolveFlexBasis determines the initial main-axis size of a flex item.
-func (t *Tree) resolveFlexBasis(node NodeID, s *Style, isRow bool, mainSize float32) float32 {
+func (t *Tree) resolveFlexBasis(node NodeID, s *Style, isRow bool, mainSize, crossSize float32) float32 {
+	var boxPadMain float32
+	if s.BoxSizing == BoxSizingContentBox {
+		cbW := crossSize
+		if isRow {
+			cbW = mainSize
+		}
+		if isRow {
+			boxPadMain = t.resolveDimensionOrZero(s.Padding.Left, cbW) + t.resolveDimensionOrZero(s.Padding.Right, cbW)
+		} else {
+			boxPadMain = t.resolveDimensionOrZero(s.Padding.Top, cbW) + t.resolveDimensionOrZero(s.Padding.Bottom, cbW)
+		}
+	}
+
 	// 1. Explicit flex-basis takes precedence
 	switch s.FlexBasis.Kind {
 	case DimensionPx:
-		return s.FlexBasis.Value
+		return s.FlexBasis.Value + boxPadMain
 	case DimensionPercent:
-		return mainSize * s.FlexBasis.Value / 100
+		return mainSize*s.FlexBasis.Value/100 + boxPadMain
 	case DimensionContent, DimensionMaxContent:
 		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
 			fn := t.measureFuncs[node]
-			mw, mh := fn(t, node, 0, MeasureUndefined, 0, MeasureUndefined)
 			if isRow {
+				mw, _ := fn(t, node, 0, MeasureUndefined, 0, MeasureUndefined)
 				return mw
 			}
+			itemW := crossSize
+			wMode := MeasureExact
+			if s.Width.Kind == DimensionPx {
+				itemW = s.Width.Value
+			} else if s.Width.Kind == DimensionPercent && crossSize >= 0 {
+				itemW = crossSize * s.Width.Value / 100
+			} else if itemW <= 0 {
+				wMode = MeasureUndefined
+			}
+			_, mh := fn(t, node, itemW, wMode, 0, MeasureUndefined)
 			return mh
 		}
 		return t.computeMaxContentSize(node, isRow, mainSize)
 	case DimensionMinContent:
 		if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
 			fn := t.measureFuncs[node]
-			mw, mh := fn(t, node, 0, MeasureAtMost, 0, MeasureUndefined)
 			if isRow {
+				mw, _ := fn(t, node, 0, MeasureAtMost, 0, MeasureUndefined)
 				return mw
 			}
+			itemW := crossSize
+			wMode := MeasureAtMost
+			if s.Width.Kind == DimensionPx {
+				itemW = s.Width.Value
+			} else if s.Width.Kind == DimensionPercent && crossSize >= 0 {
+				itemW = crossSize * s.Width.Value / 100
+			} else if itemW <= 0 {
+				wMode = MeasureUndefined
+			}
+			_, mh := fn(t, node, itemW, wMode, 0, MeasureUndefined)
 			return mh
 		}
 		return t.computeMinContentSize(node, isRow, mainSize, 0)
@@ -1215,37 +1332,36 @@ func (t *Tree) resolveFlexBasis(node NodeID, s *Style, isRow bool, mainSize floa
 	}
 	switch dim.Kind {
 	case DimensionPx:
-		return dim.Value
+		return dim.Value + boxPadMain
 	case DimensionPercent:
-		return mainSize * dim.Value / 100
+		return mainSize*dim.Value/100 + boxPadMain
 	}
 
 	// 3. AspectRatio resolution when main axis size is Auto but cross axis is definite
 	if s.AspectRatio > 0 {
 		if isRow && s.Width.Kind == DimensionAuto && s.Height.Kind == DimensionPx {
-			return s.Height.Value * s.AspectRatio
+			return s.Height.Value*s.AspectRatio + boxPadMain
 		} else if !isRow && s.Height.Kind == DimensionAuto && s.Width.Kind == DimensionPx {
-			return s.Width.Value / s.AspectRatio
+			return s.Width.Value/s.AspectRatio + boxPadMain
 		}
 	}
-	if isRow {
-		dim = s.Width
-	} else {
-		dim = s.Height
-	}
-	switch dim.Kind {
-	case DimensionPx:
-		return dim.Value
-	case DimensionPercent:
-		return mainSize * dim.Value / 100
-	}
-	// 3. Intrinsic measure func if registered
+	// 4. Intrinsic measure func if registered
 	if int(node) < len(t.measureFuncs) && t.measureFuncs[node] != nil {
 		fn := t.measureFuncs[node]
-		mw, mh := fn(t, node, mainSize, MeasureAtMost, 0, MeasureUndefined)
 		if isRow {
+			mw, _ := fn(t, node, mainSize, MeasureAtMost, 0, MeasureUndefined)
 			return mw
 		}
+		itemW := crossSize
+		wMode := MeasureExact
+		if s.Width.Kind == DimensionPx {
+			itemW = s.Width.Value
+		} else if s.Width.Kind == DimensionPercent && crossSize >= 0 {
+			itemW = crossSize * s.Width.Value / 100
+		} else if itemW <= 0 {
+			wMode = MeasureUndefined
+		}
+		_, mh := fn(t, node, itemW, wMode, 0, MeasureUndefined)
 		return mh
 	}
 
@@ -1304,28 +1420,21 @@ func (t *Tree) computeIntrinsicCross(node NodeID, isParentRow bool, targetMain f
 		return 0
 	}
 	isChildRow := cNode.Style.FlexDirection == FlexDirectionRow || cNode.Style.FlexDirection == FlexDirectionRowReverse
-	var maxCross float32
-	var totalChildGrow float32
+
+	padTop := t.resolveDimensionOrZero(cNode.Style.Padding.Top, targetMain)
+	padBottom := t.resolveDimensionOrZero(cNode.Style.Padding.Bottom, targetMain)
+	padLeft := t.resolveDimensionOrZero(cNode.Style.Padding.Left, targetMain)
+	padRight := t.resolveDimensionOrZero(cNode.Style.Padding.Right, targetMain)
+
+	gap := t.resolveDimensionOrZero(cNode.Style.Gap, targetMain)
+	var maxVal, sumVal float32
 	childCount := 0
+
 	for ch := cNode.FirstChild; ch != InvalidNode; ch = t.nodes[ch].NextSibling {
 		childCount++
 		chS := &t.nodes[ch].Style
-		totalChildGrow += chS.FlexGrow
-	}
-	gap := t.resolveDimensionOrZero(cNode.Style.Gap, targetMain)
-	totalGaps := float32(0)
-	if childCount > 1 {
-		totalGaps = float32(childCount-1) * gap
-	}
-	availForChildren := targetMain - totalGaps
-
-	for ch := cNode.FirstChild; ch != InvalidNode; ch = t.nodes[ch].NextSibling {
-		chS := &t.nodes[ch].Style
 		cw := t.resolveDimensionOrZero(chS.Width, targetMain)
 		chH := t.resolveDimensionOrZero(chS.Height, targetMain)
-		if isChildRow && totalChildGrow > 0 && chS.FlexGrow > 0 {
-			cw = availForChildren * (chS.FlexGrow / totalChildGrow)
-		}
 		if chS.AspectRatio > 0 {
 			if cw > 0 && chH == 0 {
 				chH = cw / chS.AspectRatio
@@ -1338,30 +1447,41 @@ func (t *Tree) computeIntrinsicCross(node NodeID, isParentRow bool, targetMain f
 		mLeft := t.resolveDimensionOrZero(chS.Margin.Left, targetMain)
 		mRight := t.resolveDimensionOrZero(chS.Margin.Right, targetMain)
 
+		var childCross float32
 		if isParentRow {
-			if isChildRow {
-				if chH+mTop+mBottom > maxCross {
-					maxCross = chH + mTop + mBottom
-				}
-			} else {
-				if cw+mLeft+mRight > maxCross {
-					maxCross = cw + mLeft + mRight
-				}
-			}
+			// Parent is row -> cross axis is Height
+			childCross = chH + mTop + mBottom
 		} else {
-			// Parent is column
-			if isChildRow {
-				if chH+mTop+mBottom > maxCross {
-					maxCross = chH + mTop + mBottom
-				}
-			} else {
-				if cw+mLeft+mRight > maxCross {
-					maxCross = cw + mLeft + mRight
-				}
-			}
+			// Parent is column -> cross axis is Width
+			childCross = cw + mLeft + mRight
 		}
+
+		if childCross > maxVal {
+			maxVal = childCross
+		}
+		sumVal += childCross
 	}
-	return maxCross
+
+	if childCount > 1 {
+		sumVal += float32(childCount-1) * gap
+	}
+
+	if isParentRow {
+		// Parent cross axis is Height
+		if isChildRow {
+			// Row container height is max child height
+			return maxVal + padTop + padBottom
+		}
+		// Column container height is sum of child heights
+		return sumVal + padTop + padBottom
+	}
+	// Parent cross axis is Width
+	if isChildRow {
+		// Row container width is sum of child widths
+		return sumVal + padLeft + padRight
+	}
+	// Column container width is max child width
+	return maxVal + padLeft + padRight
 }
 
 // resolveDimension resolves a single Dimension against a parent reference size.
@@ -1406,6 +1526,29 @@ func (t *Tree) clampSize(size float32, minD, maxD Dimension, parentRef float32) 
 	return size
 }
 
+// clampNodeSize applies min/max constraints to a size value with box-sizing adjustment.
+func (t *Tree) clampNodeSize(size float32, minD, maxD Dimension, parentRef, boxPad float32) float32 {
+	if minD.Kind != DimensionAuto {
+		minV := t.resolveDimension(minD, parentRef)
+		if minV >= 0 {
+			minV += boxPad
+			if size < minV {
+				size = minV
+			}
+		}
+	}
+	if maxD.Kind != DimensionAuto {
+		maxV := t.resolveDimension(maxD, parentRef)
+		if maxV >= 0 {
+			maxV += boxPad
+			if size > maxV {
+				size = maxV
+			}
+		}
+	}
+	return size
+}
+
 // hypotheticalMainWithTarget returns the main-axis size including margins
 // but using the resolved targetMain instead of the original hypothetical.
 func (fi *flexItem) hypotheticalMainWithTarget(isRow bool, s *Style, parentW, parentH float32, t *Tree) float32 {
@@ -1414,8 +1557,8 @@ func (fi *flexItem) hypotheticalMainWithTarget(isRow bool, s *Style, parentW, pa
 		marginMainStart = t.resolveDimensionOrZero(s.Margin.Left, parentW)
 		marginMainEnd = t.resolveDimensionOrZero(s.Margin.Right, parentW)
 	} else {
-		marginMainStart = t.resolveDimensionOrZero(s.Margin.Top, parentH)
-		marginMainEnd = t.resolveDimensionOrZero(s.Margin.Bottom, parentH)
+		marginMainStart = t.resolveDimensionOrZero(s.Margin.Top, parentW)
+		marginMainEnd = t.resolveDimensionOrZero(s.Margin.Bottom, parentW)
 	}
 	return fi.targetMain + marginMainStart + marginMainEnd
 }
