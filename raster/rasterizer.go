@@ -117,6 +117,14 @@ func (r *Rasterizer) AddPath(p geom.Path) {
 // Core edge processing
 // ---------------------------------------------------------------------------
 
+func intFloor(x float32) int {
+	i := int(x)
+	if x < 0 && float32(i) != x {
+		return i - 1
+	}
+	return i
+}
+
 // addEdge processes a single line segment from (x0, y0) to (x1, y1),
 // accumulating its signed area and cover contributions into the cell buffer.
 func (r *Rasterizer) addEdge(x0, y0, x1, y1 float32) {
@@ -205,8 +213,8 @@ func (r *Rasterizer) addEdge(x0, y0, x1, y1 float32) {
 			xMin, xMax = xBot, xTop
 		}
 
-		ixMin := int(xMin)
-		ixMax := int(xMax)
+		ixMin := intFloor(xMin)
+		ixMax := intFloor(xMax)
 
 		if ixMin < r.minX {
 			r.minX = ixMin

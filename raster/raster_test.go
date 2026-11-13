@@ -257,3 +257,31 @@ func TestPaintSourceSolid(t *testing.T) {
 		t.Errorf("ColorAt = %+v, want {42 84 126 255}", c)
 	}
 }
+
+// TestRasterizeOutOfBoundsWinding verifies that paths extending outside canvas bounds
+// (e.g. negative X and Y > height) do not leak scanline coverage past their right edges.
+func TestRasterizeOutOfBoundsWinding(t *testing.T) {
+	const w, h = 200, 200
+	r := NewRasterizer(w, h)
+
+	// Circle centered below and to the left of the canvas
+	circle := geom.Circle(50, 220, 100)
+	r.AddPath(circle)
+
+	dst := make([]uint8, w*h)
+	r.Rasterize(dst)
+
+	// Interior pixel of the arc (50, 150) should be covered
+	if dst[150*w+50] < 200 {
+		t.Errorf("interior pixel (50, 150) should be covered, got %d", dst[150*w+50])
+	}
+
+	// Pixels well outside the right edge of the circle (e.g. x=160..199) must be 0
+	for y := 0; y < h; y++ {
+		for x := 160; x < w; x++ {
+			if a := dst[y*w+x]; a != 0 {
+				t.Fatalf("scanline leak at (%d, %d): alpha = %d, want 0", x, y, a)
+			}
+		}
+	}
+}
