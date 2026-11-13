@@ -1,6 +1,6 @@
 package raster
 
-import plume "github.com/plume-engine/plume"
+import plume "github.com/kuntal-devrat/plume"
 
 // paint.go provides paint resolution — converting a high-level Paint
 // description into concrete per-pixel colors.

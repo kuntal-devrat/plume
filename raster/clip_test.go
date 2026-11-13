@@ -3,8 +3,8 @@ package raster
 import (
 	"testing"
 
-	plume "github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/geom"
+	plume "github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/geom"
 )
 
 func TestClipRect(t *testing.T) {

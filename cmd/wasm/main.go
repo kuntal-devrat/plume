@@ -8,10 +8,10 @@ import (
 	"syscall/js"
 	"time"
 
-	"github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/geom"
-	"github.com/plume-engine/plume/layout"
-	"github.com/plume-engine/plume/raster"
+	"github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/geom"
+	"github.com/kuntal-devrat/plume/layout"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 // UIConfig represents the live interactive parameters sent from JavaScript.

@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/plume-engine/plume/geom"
+	"github.com/kuntal-devrat/plume/geom"
 )
 
 // Flags used in simple glyphs

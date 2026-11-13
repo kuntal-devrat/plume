@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"image/png"
 
-	"github.com/plume-engine/plume/raster"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 // CanvasBridge formats Plume canvas outputs for webview consumption.

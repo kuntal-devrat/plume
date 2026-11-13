@@ -16,7 +16,7 @@
 package raster
 
 import (
-	"github.com/plume-engine/plume/geom"
+	"github.com/kuntal-devrat/plume/geom"
 )
 
 // ---------------------------------------------------------------------------

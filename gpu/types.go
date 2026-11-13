@@ -7,7 +7,7 @@
 package gpu
 
 import (
-	"github.com/plume-engine/plume"
+	"github.com/kuntal-devrat/plume"
 )
 
 // Vertex represents a 2D textured colored vertex ready for GPU upload.

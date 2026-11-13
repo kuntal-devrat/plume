@@ -19,7 +19,7 @@ Thank you for your interest in contributing to Plume! Plume is a high-performanc
 ### Cloning and Building
 
 ```bash
-git clone https://github.com/plume-engine/plume.git
+git clone https://github.com/kuntal-devrat/plume.git
 cd plume
 go test ./...
 ```

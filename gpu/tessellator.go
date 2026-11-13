@@ -1,8 +1,8 @@
 package gpu
 
 import (
-	"github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/geom"
+	"github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/geom"
 )
 
 type point2D struct {

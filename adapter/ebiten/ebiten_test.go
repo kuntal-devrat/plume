@@ -3,7 +3,7 @@ package ebiten
 import (
 	"testing"
 
-	"github.com/plume-engine/plume/layout"
+	"github.com/kuntal-devrat/plume/layout"
 )
 
 type mockEbitenImage struct {

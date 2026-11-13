@@ -1,3 +1,3 @@
-module github.com/plume-engine/plume
+module github.com/kuntal-devrat/plume
 
 go 1.21

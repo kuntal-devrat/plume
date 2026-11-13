@@ -3,8 +3,8 @@ package text
 import (
 	"sync"
 
-	plume "github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/raster"
+	plume "github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 var defaultCache = NewGlyphCache(2048)

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/raster"
+	"github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 func TestWailsBridge(t *testing.T) {

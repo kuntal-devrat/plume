@@ -1,7 +1,7 @@
 package ebiten
 
 import (
-	"github.com/plume-engine/plume/layout"
+	"github.com/kuntal-devrat/plume/layout"
 )
 
 // ClickHandler is invoked when a pointer click is completed on a layout node.

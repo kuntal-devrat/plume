@@ -3,8 +3,8 @@ package gpu
 import (
 	"testing"
 
-	"github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/geom"
+	"github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/geom"
 )
 
 func TestTessellateRect(t *testing.T) {

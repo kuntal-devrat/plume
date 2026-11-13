@@ -4,8 +4,8 @@ import (
 	"container/list"
 	"math"
 
-	"github.com/plume-engine/plume/geom"
-	"github.com/plume-engine/plume/raster"
+	"github.com/kuntal-devrat/plume/geom"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 // CachedGlyph contains pre-rasterized alpha mask data and placement offsets.

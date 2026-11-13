@@ -4,9 +4,9 @@ import (
 	"image"
 	"image/color"
 
-	plume "github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/geom"
-	"github.com/plume-engine/plume/layout"
+	plume "github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/geom"
+	"github.com/kuntal-devrat/plume/layout"
 )
 
 // canvas.go provides a high-level 2D rendering surface that ties together

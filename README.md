@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/plume-engine/plume"><img src="https://pkg.go.dev/badge/github.com/plume-engine/plume.svg" alt="Go Reference"></a>
-  <a href="https://github.com/plume-engine/plume/actions/workflows/ci.yml"><img src="https://github.com/plume-engine/plume/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://goreportcard.com/report/github.com/plume-engine/plume"><img src="https://goreportcard.com/badge/github.com/plume-engine/plume" alt="Go Report Card"></a>
+  <a href="https://pkg.go.dev/github.com/kuntal-devrat/plume"><img src="https://pkg.go.dev/badge/github.com/kuntal-devrat/plume.svg" alt="Go Reference"></a>
+  <a href="https://github.com/kuntal-devrat/plume/actions/workflows/ci.yml"><img src="https://github.com/kuntal-devrat/plume/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://goreportcard.com/report/github.com/kuntal-devrat/plume"><img src="https://goreportcard.com/badge/github.com/kuntal-devrat/plume" alt="Go Report Card"></a>
   <img src="https://img.shields.io/badge/W3C%20WPT-100%25%20Conformance-brightgreen" alt="W3C WPT 100%">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -22,9 +22,15 @@
 Plume is an embeddable 2D layout and vector rasterization engine written from scratch in pure Go. It delivers full CSS Flexbox and CSS Grid layout algorithms, an analytical anti-aliased CPU rasterizer, TrueType font shaping, vector geometry operations, and GPU tessellation — without Cgo or native dynamic library dependencies.
 
 <p align="center">
-  <img src="assets/preview.png" alt="Plume Showcase Dashboard" width="920" />
+  <img src="assets/hero.png" alt="Plume SaaS Hero Showcase" width="940" />
   <br>
-  <em>A 1280&times;800 dashboard layout rendered end-to-end with CSS Grid, Flexbox, TrueType typography, and vector paths in under 17 milliseconds using pure Go.</em>
+  <em>A modern 1440&times;960 SaaS landing page rendered entirely via Plume's Flexbox, CSS Grid, TrueType font shaping, and vector curve rasterization.</em>
+</p>
+
+<p align="center">
+  <img src="assets/preview.png" alt="Plume Dashboard Showcase" width="940" />
+  <br>
+  <em>A 1280&times;800 system dashboard with multi-column CSS Grid tables, Bézier sparklines, and progress indicators computed and rasterized in sub-17ms.</em>
 </p>
 
 ## Highlights
@@ -66,7 +72,7 @@ Measured on an AMD Ryzen 9 / Linux x86-64 workstation:
 ## Installation
 
 ```bash
-go get github.com/plume-engine/plume
+go get github.com/kuntal-devrat/plume
 ```
 
 Requires Go 1.21 or later.
@@ -77,9 +83,9 @@ Requires Go 1.21 or later.
 package main
 
 import (
-	"github.com/plume-engine/plume"
-	"github.com/plume-engine/plume/layout"
-	"github.com/plume-engine/plume/raster"
+	"github.com/kuntal-devrat/plume"
+	"github.com/kuntal-devrat/plume/layout"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 func main() {
@@ -113,7 +119,7 @@ func main() {
 	canvas := raster.NewCanvas(800, 600)
 	canvas.Clear(plume.Hex("#0b0f19"))
 
-	cardRect := tree.ComputedRect(card)
+	cardRect := tree.AbsoluteRect(card)
 	canvas.DrawRoundedRect(cardRect, 12, plume.Fill(plume.Hex("#1e293b")))
 
 	// 4. Save PNG
@@ -123,11 +129,13 @@ func main() {
 }
 ```
 
-## Running the Showcase Example
-
-The included example renders the complete dashboard shown above:
+## Running the Examples
 
 ```bash
+# Render the SaaS landing page hero (1440x960)
+go run ./examples/hero
+
+# Render the metrics dashboard (1280x800)
 go run ./examples
 ```
 
@@ -143,7 +151,9 @@ plume/
 ├── adapter/
 │   ├── ebiten/    # Ebitengine surface bridge & UI hit-testing
 │   └── wails/     # Wails desktop canvas bridge
-├── examples/      # End-to-end rendering showcase (Flexbox + Grid + Text)
+├── examples/
+│   ├── hero/      # SaaS Landing Page Hero showcase
+│   └── main.go    # System Metrics Dashboard showcase
 └── playground/    # WebAssembly interactive layout playground
 ```
 

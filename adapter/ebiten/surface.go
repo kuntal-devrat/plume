@@ -9,7 +9,7 @@ package ebiten
 import (
 	"image"
 
-	"github.com/plume-engine/plume/raster"
+	"github.com/kuntal-devrat/plume/raster"
 )
 
 // WritableImage is an interface satisfied by *ebiten.Image without forcing
