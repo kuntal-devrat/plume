@@ -346,15 +346,11 @@ func (c *Canvas) DrawRoundedRect(r Rect, radius float32, paint plume.Paint) {
 }
 
 // ---------------------------------------------------------------------------
-// DrawText (Phase 1 stub)
+// DrawText
 // ---------------------------------------------------------------------------
 
-// DrawText renders text at the given baseline position.
-//
-// Phase 1 implementation: since no font rasterizer is available yet, this
-// draws a placeholder colored rectangle whose width is estimated from the
-// string length and font size (≈ 0.6 × fontSize per character). The
-// rectangle's height equals the font size.
+// DrawText renders text at the given baseline position as a simple placeholder
+// rectangle when true font rasterization (via the text package) is not in use.
 func (c *Canvas) DrawText(text string, x, y float32, style plume.TextStyle) {
 	if len(text) == 0 {
 		return

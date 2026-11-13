@@ -1,11 +1,21 @@
-# Binaries
+# Binaries and build artifacts
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 *.test
-/wasm
-/demo
-/dashboard
-/oggen
+*.out
+
+# Go build cache
+/bin/
+/dist/
+
+# Test / example outputs
+output.png
+
+# IDE and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

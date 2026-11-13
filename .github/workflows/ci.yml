@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Test (Go ${{ matrix.go-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        go-version: [ '1.21', '1.22', '1.23' ]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          check-latest: true
+          cache: true
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Run Tests (with Race Detector)
+        # Windows & macOS with race detector on supported arches
+        run: go test -v -race ./...
+        if: matrix.os != 'windows-latest'
+
+      - name: Run Tests (Windows)
+        run: go test -v ./...
+        if: matrix.os == 'windows-latest'
+
+      - name: Run Rich Example
+        run: go run ./examples
+
+  wasm:
+    name: WebAssembly Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Build WebAssembly Target
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: go build -o /dev/null ./cmd/wasm

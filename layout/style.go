@@ -131,7 +131,7 @@ const (
 	AlignFlexEnd
 	// AlignCenter centers items on the cross axis.
 	AlignCenter
-	// AlignBaseline aligns items along their baselines. In Phase 1 this
+	// AlignBaseline aligns items along their baselines. Currently
 	// behaves identically to AlignFlexStart.
 	AlignBaseline
 )

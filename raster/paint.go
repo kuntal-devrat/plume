@@ -5,9 +5,8 @@ import plume "github.com/plume-engine/plume"
 // paint.go provides paint resolution — converting a high-level Paint
 // description into concrete per-pixel colors.
 //
-// Phase 1 supports only solid (flat) colors. Future phases will add
-// gradients, patterns, and image fills by extending the PaintSource
-// interface.
+// Currently supports solid colors, with extensible interfaces for
+// gradient and pattern fills.
 
 // PaintSource resolves a paint to a concrete RGBA color at a given pixel
 // coordinate. For solid colors the position is ignored; gradient and
