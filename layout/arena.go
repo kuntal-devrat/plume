@@ -172,9 +172,28 @@ func (t *Tree) AddChild(parent, child NodeID) {
 }
 
 // ComputedRect returns the computed position and size of the node identified
-// by id. The result is only meaningful after [Compute] has been called.
+// by id, relative to its parent container. The result is only meaningful after
+// [Compute] has been called.
 func (t *Tree) ComputedRect(id NodeID) Rect {
 	return t.nodes[id].Computed
+}
+
+// AbsoluteRect returns the absolute canvas/screen coordinates and size of the
+// node identified by id, accumulated by traversing up the parent chain to the root.
+// The result is only meaningful after [Compute] has been called.
+func (t *Tree) AbsoluteRect(id NodeID) Rect {
+	if id == InvalidNode || int(id) >= len(t.nodes) {
+		return Rect{}
+	}
+	r := t.nodes[id].Computed
+	curr := t.nodes[id].Parent
+	for curr != InvalidNode && int(curr) < len(t.nodes) {
+		p := &t.nodes[curr]
+		r.X += p.Computed.X
+		r.Y += p.Computed.Y
+		curr = p.Parent
+	}
+	return r
 }
 
 // SetStyle updates the style configuration of an existing node.

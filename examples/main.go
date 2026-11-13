@@ -90,7 +90,7 @@ func main() {
 		Width:         layout.Px(canvasW),
 		Height:        layout.Px(canvasH),
 		Padding:       layout.Uniform(32),
-		Gap:           layout.Px(24),
+		Gap:           layout.Px(20),
 	})
 
 	// Header bar: Flex row with space-between
@@ -99,7 +99,7 @@ func main() {
 		FlexDirection:  layout.FlexDirectionRow,
 		JustifyContent: layout.JustifySpaceBetween,
 		AlignItems:     layout.AlignCenter,
-		Height:         layout.Px(50),
+		Height:         layout.Px(48),
 	})
 	tree.AddChild(root, header)
 
@@ -110,7 +110,7 @@ func main() {
 			layout.Fr(1), layout.Fr(1), layout.Fr(1), layout.Fr(1),
 		},
 		ColumnGap: layout.Px(18),
-		Height:    layout.Px(110),
+		Height:    layout.Px(112),
 	})
 	tree.AddChild(root, metricsGrid)
 
@@ -126,7 +126,7 @@ func main() {
 		Display:       layout.DisplayFlex,
 		FlexDirection: layout.FlexDirectionColumn,
 		FlexGrow:      1,
-		Padding:       layout.Uniform(20),
+		Padding:       layout.Uniform(24),
 		Gap:           layout.Px(12),
 	})
 	tree.AddChild(root, tableBox)
@@ -151,7 +151,7 @@ func main() {
 
 	var thIDs []layout.NodeID
 	for i := 0; i < 8; i++ {
-		th := tree.NewNode(layout.Style{Height: layout.Px(28)})
+		th := tree.NewNode(layout.Style{Height: layout.Px(30)})
 		tree.AddChild(tableGrid, th)
 		thIDs = append(thIDs, th)
 	}
@@ -160,7 +160,7 @@ func main() {
 	for r := 0; r < len(services); r++ {
 		var rCols []layout.NodeID
 		for c := 0; c < 8; c++ {
-			td := tree.NewNode(layout.Style{Height: layout.Px(38)})
+			td := tree.NewNode(layout.Style{Height: layout.Px(40)})
 			tree.AddChild(tableGrid, td)
 			rCols = append(rCols, td)
 		}
@@ -175,53 +175,51 @@ func main() {
 	// 5. Render Scene onto Raster Canvas
 	startRender := time.Now()
 	canvas := raster.NewCanvas(canvasW, canvasH)
-	canvas.Clear(plume.Hex("#0b0f19"))
-
-	// Subtle radial/gradient background glow effect
-	glowPath := geom.Circle(canvasW/2, -100, 450)
-	canvas.DrawPath(glowPath, plume.Fill(plume.Color{R: 20, G: 35, B: 65, A: 70}))
+	canvas.Clear(plume.Hex("#080c14"))
 
 	// Header rendering
-	hRect := tree.ComputedRect(header)
-	logoBadge := geom.Circle(hRect.X+18, hRect.Y+hRect.Height/2, 16)
-	canvas.DrawPath(logoBadge, plume.Fill(plume.Hex("#38bdf8")))
+	hRect := tree.AbsoluteRect(header)
 
-	// Stylized vector "P" feather in logo badge
+	// Logo badge with geometric feather icon
+	logoBadge := geom.Circle(hRect.X+18, hRect.Y+hRect.Height/2, 16)
+	canvas.DrawPath(logoBadge, plume.Fill(plume.Hex("#0284c7")))
+
 	var pb geom.PathBuilder
-	pb.MoveTo(hRect.X+13, hRect.Y+hRect.Height/2+7)
-	pb.LineTo(hRect.X+13, hRect.Y+hRect.Height/2-7)
-	pb.CubicTo(hRect.X+19, hRect.Y+hRect.Height/2-7, hRect.X+24, hRect.Y+hRect.Height/2-3, hRect.X+17, hRect.Y+hRect.Height/2)
-	pFeather := geom.Stroke(pb.Finish(), geom.StrokeOptions{Width: 2.5})
+	pb.MoveTo(hRect.X+12, hRect.Y+hRect.Height/2+6)
+	pb.LineTo(hRect.X+12, hRect.Y+hRect.Height/2-6)
+	pb.CubicTo(hRect.X+18, hRect.Y+hRect.Height/2-6, hRect.X+24, hRect.Y+hRect.Height/2-2, hRect.X+17, hRect.Y+hRect.Height/2+1)
+	pFeather := geom.Stroke(pb.Finish(), geom.StrokeOptions{Width: 2.2})
 	canvas.DrawPath(pFeather, plume.Fill(plume.White))
 
-	text.DrawText(canvas, cache, font, "PLUME ENGINE", hRect.X+44, hRect.Y+32, 20, plume.White)
+	text.DrawText(canvas, cache, font, "PLUME ENGINE", hRect.X+46, hRect.Y+30, 18, plume.White)
+	text.DrawText(canvas, cache, font, "SYSTEM OVERVIEW", hRect.X+210, hRect.Y+30, 13, plume.Hex("#64748b"))
 
 	// Status badge pill in header
-	badgeRect := raster.Rect{X: hRect.X + hRect.Width - 170, Y: hRect.Y + 10, Width: 170, Height: 30}
+	badgeRect := raster.Rect{X: hRect.X + hRect.Width - 180, Y: hRect.Y + 9, Width: 180, Height: 30}
 	canvas.DrawRoundedRect(badgeRect, 15, plume.Fill(plume.Hex("#064e3b")))
-	statusDot := geom.Circle(badgeRect.X+18, badgeRect.Y+15, 4)
+	statusDot := geom.Circle(badgeRect.X+16, badgeRect.Y+15, 4)
 	canvas.DrawPath(statusDot, plume.Fill(plume.Hex("#34d399")))
-	text.DrawText(canvas, cache, font, "100% W3C CONFORMANT", badgeRect.X+30, badgeRect.Y+20, 10, plume.Hex("#a7f3d0"))
+	text.DrawText(canvas, cache, font, "100% W3C CONFORMANT", badgeRect.X+28, badgeRect.Y+20, 11, plume.Hex("#a7f3d0"))
 
 	// Metrics Cards
 	for i, m := range metrics {
-		mRect := tree.ComputedRect(metricNodeIDs[i])
-		canvas.DrawRoundedRect(mRect, 12, plume.Fill(plume.Hex("#111827")))
+		mRect := tree.AbsoluteRect(metricNodeIDs[i])
+		canvas.DrawRoundedRect(mRect, 12, plume.Fill(plume.Hex("#0f172a")))
 
 		// Accent border bar on left
 		bar := raster.Rect{X: mRect.X, Y: mRect.Y, Width: 4, Height: mRect.Height}
 		canvas.DrawRoundedRect(bar, 2, plume.Fill(m.accent))
 
-		text.DrawText(canvas, cache, font, m.title, mRect.X+18, mRect.Y+28, 11, plume.Hex("#9ca3af"))
+		text.DrawText(canvas, cache, font, m.title, mRect.X+18, mRect.Y+28, 11, plume.Hex("#94a3b8"))
 		text.DrawText(canvas, cache, font, m.value, mRect.X+18, mRect.Y+68, 24, plume.White)
-		text.DrawText(canvas, cache, font, m.change, mRect.X+18, mRect.Y+94, 12, m.accent)
+		text.DrawText(canvas, cache, font, m.change, mRect.X+18, mRect.Y+95, 12, m.accent)
 
 		// Smooth vector sparkline curve
 		if len(m.spark) > 1 {
-			sparkW := float32(75)
-			sparkH := float32(36)
-			sparkX := mRect.X + mRect.Width - sparkW - 16
-			sparkY := mRect.Y + mRect.Height - sparkH - 24
+			sparkW := float32(76)
+			sparkH := float32(34)
+			sparkX := mRect.X + mRect.Width - sparkW - 18
+			sparkY := mRect.Y + mRect.Height - sparkH - 26
 
 			var spb geom.PathBuilder
 			step := sparkW / float32(len(m.spark)-1)
@@ -240,14 +238,14 @@ func main() {
 	}
 
 	// Table Container Background
-	tRect := tree.ComputedRect(tableBox)
-	canvas.DrawRoundedRect(tRect, 14, plume.Fill(plume.Hex("#111827")))
+	tRect := tree.AbsoluteRect(tableBox)
+	canvas.DrawRoundedRect(tRect, 14, plume.Fill(plume.Hex("#0f172a")))
 
 	// Table Headers
 	headers := []string{"SERVICE", "REGION", "STATUS", "P50", "P99", "ERRORS", "UPTIME (30D)", "DEPLOYED"}
 	for i, thID := range thIDs {
-		rect := tree.ComputedRect(thID)
-		text.DrawText(canvas, cache, font, headers[i], rect.X+8, rect.Y+20, 11, plume.Hex("#6b7280"))
+		rect := tree.AbsoluteRect(thID)
+		text.DrawText(canvas, cache, font, headers[i], rect.X+10, rect.Y+20, 11, plume.Hex("#64748b"))
 	}
 
 	// Table Rows
@@ -256,48 +254,48 @@ func main() {
 
 		// Alternating subtle zebra striping
 		if r%2 == 1 {
-			rStart := tree.ComputedRect(cols[0])
-			rEnd := tree.ComputedRect(cols[7])
+			rStart := tree.AbsoluteRect(cols[0])
+			rEnd := tree.AbsoluteRect(cols[7])
 			rowBg := raster.Rect{
 				X:      rStart.X - 4,
 				Y:      rStart.Y - 2,
 				Width:  (rEnd.X + rEnd.Width) - rStart.X + 8,
 				Height: rStart.Height + 4,
 			}
-			canvas.DrawRoundedRect(rowBg, 6, plume.Fill(plume.Hex("#162032")))
+			canvas.DrawRoundedRect(rowBg, 6, plume.Fill(plume.Hex("#172033")))
 		}
 
 		// Service Name
-		r0 := tree.ComputedRect(cols[0])
-		text.DrawText(canvas, cache, font, s.name, r0.X+8, r0.Y+24, 13, plume.Hex("#f9fafb"))
+		r0 := tree.AbsoluteRect(cols[0])
+		text.DrawText(canvas, cache, font, s.name, r0.X+10, r0.Y+25, 13, plume.Hex("#f1f5f9"))
 
 		// Region
-		r1 := tree.ComputedRect(cols[1])
-		text.DrawText(canvas, cache, font, s.region, r1.X+8, r1.Y+24, 12, plume.Hex("#9ca3af"))
+		r1 := tree.AbsoluteRect(cols[1])
+		text.DrawText(canvas, cache, font, s.region, r1.X+10, r1.Y+25, 12, plume.Hex("#94a3b8"))
 
 		// Status Badge
-		r2 := tree.ComputedRect(cols[2])
+		r2 := tree.AbsoluteRect(cols[2])
 		statusPill := raster.Rect{X: r2.X + 8, Y: r2.Y + 8, Width: 76, Height: 22}
 		canvas.DrawRoundedRect(statusPill, 4, plume.Fill(plume.Hex("#064e3b")))
 		text.DrawText(canvas, cache, font, s.status, statusPill.X+10, statusPill.Y+15, 10, plume.Hex("#34d399"))
 
 		// Latency & Errors
-		r3 := tree.ComputedRect(cols[3])
-		text.DrawText(canvas, cache, font, s.p50, r3.X+8, r3.Y+24, 12, plume.Hex("#e5e7eb"))
+		r3 := tree.AbsoluteRect(cols[3])
+		text.DrawText(canvas, cache, font, s.p50, r3.X+10, r3.Y+25, 12, plume.Hex("#e2e8f0"))
 
-		r4 := tree.ComputedRect(cols[4])
-		text.DrawText(canvas, cache, font, s.p99, r4.X+8, r4.Y+24, 12, plume.Hex("#e5e7eb"))
+		r4 := tree.AbsoluteRect(cols[4])
+		text.DrawText(canvas, cache, font, s.p99, r4.X+10, r4.Y+25, 12, plume.Hex("#e2e8f0"))
 
-		r5 := tree.ComputedRect(cols[5])
-		text.DrawText(canvas, cache, font, s.errorRt, r5.X+8, r5.Y+24, 12, plume.Hex("#9ca3af"))
+		r5 := tree.AbsoluteRect(cols[5])
+		text.DrawText(canvas, cache, font, s.errorRt, r5.X+10, r5.Y+25, 12, plume.Hex("#94a3b8"))
 
 		// Uptime progress indicator bar
-		r6 := tree.ComputedRect(cols[6])
+		r6 := tree.AbsoluteRect(cols[6])
 		barW := r6.Width - 28
-		bgBar := raster.Rect{X: r6.X + 8, Y: r6.Y + 14, Width: barW, Height: 8}
-		canvas.DrawRoundedRect(bgBar, 4, plume.Fill(plume.Hex("#1f2937")))
+		bgBar := raster.Rect{X: r6.X + 10, Y: r6.Y + 16, Width: barW, Height: 8}
+		canvas.DrawRoundedRect(bgBar, 4, plume.Fill(plume.Hex("#1e293b")))
 
-		fgBar := raster.Rect{X: r6.X + 8, Y: r6.Y + 14, Width: barW * s.uptime, Height: 8}
+		fgBar := raster.Rect{X: r6.X + 10, Y: r6.Y + 16, Width: barW * s.uptime, Height: 8}
 		barCol := plume.Hex("#10b981")
 		if s.uptime < 0.98 {
 			barCol = plume.Hex("#f59e0b")
@@ -305,8 +303,8 @@ func main() {
 		canvas.DrawRoundedRect(fgBar, 4, plume.Fill(barCol))
 
 		// Deployment timestamp
-		r7 := tree.ComputedRect(cols[7])
-		text.DrawText(canvas, cache, font, s.deploy, r7.X+8, r7.Y+24, 12, plume.Hex("#6b7280"))
+		r7 := tree.AbsoluteRect(cols[7])
+		text.DrawText(canvas, cache, font, s.deploy, r7.X+10, r7.Y+25, 12, plume.Hex("#64748b"))
 	}
 
 	renderDur := time.Since(startRender)
